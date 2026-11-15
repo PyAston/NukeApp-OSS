@@ -7,7 +7,7 @@ on:
   pull_request:
     branches: [dev, master]
 
-# A push is never cancelled by the next one, so every commit that reaches dev gets its build and its Telegram post.
+# A push is never cancelled by the next one, so every commit that reaches dev gets its build and every tag its release.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -145,75 +145,6 @@ jobs:
             **/build/test-results/**
           if-no-files-found: ignore
 
-  # Posts the signed Release APKs of a commit that reached dev or master to the CI channel. Needs TELEGRAM_BOT_TOKEN and
-  # TELEGRAM_CHAT_ID. The APKs are far below the 50 MB the cloud Bot API accepts, so no local Bot API server is needed.
-  telegram:
-    name: Post to Telegram
-    runs-on: ubuntu-latest
-    needs: build
-    # A tag points at a commit that already went out when it reached dev or master.
-    if: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-apks
-          path: apks
-
-      - name: Send
-        env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
-          COMMIT_URL: ${{ github.event.head_commit.url }}
-        run: |
-          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
-            echo "::error::TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set."
-            exit 1
-          fi
-          python3 - <<'PY'
-          import json, os, subprocess, glob, sys
-
-          # MarkdownV2 only needs ` and \ escaped inside code, and ) and \ inside a link target.
-          def code(text): return text.replace("\\", "\\\\").replace("`", "\\`")
-          def link(text): return text.replace("\\", "\\\\").replace(")", "\\)")
-
-          # Attribution trailers say nothing about the change and would only use up the caption.
-          lines = [line for line in os.environ["COMMIT_MESSAGE"].strip().splitlines() if not line.lower().startswith("co-authored-by:")]
-          message = "\n".join(lines).strip()
-          author = os.environ["COMMIT_AUTHOR"]
-          url = os.environ["COMMIT_URL"]
-
-          def build(text):
-              return f"New push to GitHub\\!\n```\n{code(text)}\n```by `{code(author)}`\n[See the commit]({link(url)})"
-
-          # A caption holds at most 1024 characters. A longer message is cut at the end, so the title always stays.
-          caption = build(message)
-          if len(caption) > 1024:
-              low, high = 0, len(message)
-              while low < high:
-                  middle = (low + high + 1) // 2
-                  if len(build(message[:middle].rstrip() + "...")) <= 1024: low = middle
-                  else: high = middle - 1
-              caption = build(message[:low].rstrip() + "...")
-
-          files = sorted(glob.glob("apks/**/*.apk", recursive=True))
-          if not files:
-              sys.exit("no APK to send")
-          media = [{"type": "document", "media": f"attach://file{i}"} for i in range(len(files))]
-          media[-1].update({"caption": caption, "parse_mode": "MarkdownV2"})
-          command = ["curl", "--fail-with-body", "--silent", "--show-error",
-                     f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMediaGroup",
-                     # --form-string: -F would cut the JSON at the first ';' of the caption.
-                     "--form-string", f"chat_id={os.environ['CHAT_ID']}", "--form-string", f"media={json.dumps(media)}"]
-          for i, path in enumerate(files):
-              command += ["-F", f"file{i}=@{path}"]
-          result = subprocess.run(command, capture_output=True, text=True)
-          # The token is in the URL, so never print the command.
-          print(result.stdout[:500], result.stderr[:500])
-          sys.exit(result.returncode)
-          PY
-
   # Publishes the signed Release APKs of a v* tag as a GitHub release, after the build job has verified that commit. A tag
   # containing a hyphen (v1.0.0-beta.1) is a prerelease.
   release:
@@ -224,10 +155,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The full history and tags give the commits since the previous tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           name: release-apks
           path: apks
+
+      - name: Write the release notes
+        run: python3 .github/scripts/release.py markdown "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
 
       - name: Collect the APKs and their checksums
         run: |
@@ -238,6 +177,31 @@ jobs:
 
       - uses: softprops/action-gh-release@v3
         with:
+          name: NukeApp-OSS ${{ github.ref_name }}
+          body_path: ${{ runner.temp }}/notes.md
           files: assets/*
-          generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # Posts the published release to the CI channel: its notes as the caption of its signed APKs. Only a v* tag gets here,
+  # never a branch push. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID. The APKs are far below the 50 MB the cloud Bot
+  # API accepts, so no local Bot API server is needed.
+  telegram:
+    name: Post to Telegram
+    runs-on: ubuntu-latest
+    needs: release
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-apks
+          path: apks
+
+      - name: Send
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 .github/scripts/release.py telegram "$GITHUB_REF_NAME" --send apks
