@@ -114,7 +114,10 @@ pub fn read_archive(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, PackageEr
         let mut entry = archive
             .by_index(index)
             .map_err(|error| invalid_package(format!("Unreadable entry {index}: {error}")))?;
-        let name = entry.name().to_owned();
+        let name = entry
+            .name()
+            .map_err(|error| invalid_package(format!("Unreadable name of entry {index}: {error}")))?
+            .into_owned();
         if entry.encrypted() {
             return Err(invalid_package(format!("{name} is encrypted")));
         }
