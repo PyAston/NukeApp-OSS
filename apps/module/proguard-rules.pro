@@ -22,6 +22,8 @@
 # The Rust protocol core binds by JNI name and throws NativeProtocolException by constructor signature.
 -keep class io.github.nuke.oss.app.tiktok.protocol.NativeProtocol { native <methods>; }
 -keep class io.github.nuke.oss.app.tiktok.protocol.NativeProtocolException { <init>(int, java.lang.String); }
+# The Rust MCP server calls the app back through McpHost.request by name and signature.
+-keep interface io.github.nuke.oss.app.tiktok.mcp.McpHost { java.lang.String request(java.lang.String, java.lang.String, byte[]); }
 # The generated request-handler subclass calls dexmaker's ProxyBuilder helpers by name.
 -keep class com.android.dx.stock.ProxyBuilder { *; }
 -dontwarn com.android.dx.**

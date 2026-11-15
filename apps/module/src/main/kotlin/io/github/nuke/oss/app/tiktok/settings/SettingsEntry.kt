@@ -20,6 +20,7 @@ import io.github.nuke.oss.app.shared.diagnostics.DiagnosticsStore
 import io.github.nuke.oss.app.shared.dex.methods
 import io.github.nuke.oss.app.shared.init.SetupStore
 import io.github.nuke.oss.app.shared.settings.FeatureActivity
+import io.github.nuke.oss.app.shared.settings.McpConsole
 import io.github.nuke.oss.app.shared.settings.PetConsole
 import io.github.nuke.oss.app.shared.settings.ProtocolConsole
 import io.github.nuke.oss.app.shared.settings.HostContacts
@@ -62,6 +63,7 @@ internal class SettingsEntry(
     private val protocol: ProtocolConsole? = null,
     private val featureFiles: java.io.File? = null,
     private val pets: PetConsole? = null,
+    private val mcp: McpConsole? = null,
 ) : RuntimeFeature {
     override val id = ID
 
@@ -145,6 +147,7 @@ internal class SettingsEntry(
             protocol = protocol,
             featureFiles = featureFiles,
             pets = pets,
+            mcp = mcp,
         )
         // A debug build is reinstalled under the same version name, so a host process still running the earlier code can
         // find the installed resources renumbered; the row is skipped then rather than failing the host's screen.

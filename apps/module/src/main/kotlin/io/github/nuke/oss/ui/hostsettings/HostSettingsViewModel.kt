@@ -21,6 +21,7 @@ import io.github.nuke.oss.app.shared.settings.FeatureDisplay
 import io.github.nuke.oss.app.shared.settings.HostFeature
 import io.github.nuke.oss.app.shared.settings.HostSettingsSession
 import io.github.nuke.oss.app.shared.settings.PetConsole
+import io.github.nuke.oss.app.shared.settings.McpConsole
 import io.github.nuke.oss.app.shared.settings.ProtocolConsole
 import io.github.nuke.oss.app.shared.settings.UiAppearance
 import io.github.nuke.oss.app.shared.settings.UiConfig
@@ -239,6 +240,9 @@ internal class HostSettingsViewModel(private val session: HostSettingsSession?) 
 
     // The host's pet feeding, when it has one.
     val pets: PetConsole? get() = session?.pets
+
+    // The host's MCP server, when it has one.
+    val mcp: McpConsole? get() = session?.mcp
 
     // Where features' settings keep files in the host, when it keeps any.
     val featureFiles: File? get() = session?.featureFiles

@@ -48,6 +48,7 @@ import io.github.nuke.oss.app.shared.settings.FeatureActivity
 import io.github.nuke.oss.app.shared.settings.FeatureDefault
 import io.github.nuke.oss.app.shared.settings.FeatureMemory
 import io.github.nuke.oss.app.shared.settings.FeatureSwitches
+import io.github.nuke.oss.app.shared.settings.McpConsole
 import io.github.nuke.oss.app.shared.settings.HostSettingsController
 import io.github.nuke.oss.app.shared.settings.ModuleConfig
 import io.github.nuke.oss.app.shared.settings.Option
@@ -205,9 +206,10 @@ class TikTokHostAdapter internal constructor(
         val activity = FeatureActivity { id -> if (id == AutoStreak.ID) AutoStreak.history(host.streakDirectory, streakAccount()) else emptyList() }
         val protocol = features.map { it.feature }.filterIsInstance<ProtocolConsole>().singleOrNull()
         val pets = features.map { it.feature }.filterIsInstance<PetConsole>().singleOrNull()
+        val mcp = features.map { it.feature }.filterIsInstance<McpConsole>().singleOrNull()
         manager.register(SettingsEntry(
             controller, host.ui, host.setup, host.diagnostics, host.config, host.resolver, loader, environment.event.build, collector,
-            environment.logger, scripts, activity, protocol, File(paths.dataDir, FEATURE_FILES), pets,
+            environment.logger, scripts, activity, protocol, File(paths.dataDir, FEATURE_FILES), pets, mcp,
         ))
         manager.setEnabled(SettingsEntry.ID, true)
     }

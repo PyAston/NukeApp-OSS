@@ -89,6 +89,7 @@ class HostSettingsActivity : ComponentActivity() {
                 loadActivity = settings::activity,
                 protocol = settings.protocol,
                 pets = settings.pets,
+                mcp = settings.mcp,
                 featureFiles = settings.featureFiles,
                 onUiChange = settings::setUi,
                 onBugReports = settings::setBugReports,

@@ -50,6 +50,7 @@ import io.github.nuke.oss.app.shared.settings.ActivityRecord
 import io.github.nuke.oss.app.shared.integrity.DeviceTrust
 import io.github.nuke.oss.app.shared.settings.HostAccount
 import io.github.nuke.oss.app.shared.settings.PetConsole
+import io.github.nuke.oss.app.shared.settings.McpConsole
 import io.github.nuke.oss.app.shared.settings.ProtocolConsole
 import io.github.nuke.oss.app.shared.settings.HostContactList
 import io.github.nuke.oss.app.shared.settings.HostFeature
@@ -93,7 +94,7 @@ private const val SCRIPTS = "scripts"
 // Not a page: this tile opens the import and export dialog.
 private const val CONFIG = "config"
 // Features without options whose row still opens a dialog of their own.
-private val DIALOG_FEATURES = setOf(PROTOCOL_SENDER)
+private val DIALOG_FEATURES = setOf(PROTOCOL_SENDER, MCP_SERVER)
 
 // The feature switch screen that runs inside the host process. The query is local: it only filters this list.
 @Composable
@@ -107,6 +108,7 @@ internal fun HostSettingsScreen(
     loadActivity: suspend (String) -> List<ActivityRecord>,
     protocol: ProtocolConsole?,
     pets: PetConsole?,
+    mcp: McpConsole?,
     featureFiles: java.io.File?,
     onUiChange: (UiConfig) -> Unit,
     onBugReports: (Boolean) -> Unit,
@@ -184,8 +186,8 @@ internal fun HostSettingsScreen(
         val editing = optionsFor?.let { id -> state.features.firstOrNull { it.id == id } }
         if (editing != null && live) {
             val title = featureLabels[editing.id]?.let { stringResource(it.title) } ?: editing.id
-            // Auto streak, auto pet feeding, custom streak days, share groups and the protocol sender keep NukeApp's own dialogs; every other feature uses the
-            // shared options dialog.
+            // Auto streak, auto pet feeding, custom streak days, share groups, the protocol sender and the MCP server keep dialogs of their own; every
+            // other feature uses the shared options dialog.
             if (editing.id == SHARE_GROUPS) {
                 ShareGroupsDialog(
                     feature = editing,
@@ -206,6 +208,8 @@ internal fun HostSettingsScreen(
                 )
             } else if (editing.id == PROTOCOL_SENDER) {
                 if (protocol != null) ProtocolSenderDialog(protocol) { optionsFor = null }
+            } else if (editing.id == MCP_SERVER) {
+                if (mcp != null) McpServerDialog(mcp, loadContacts) { optionsFor = null }
             } else if (editing.id == STREAK_DAYS) {
                 StreakDaysDialog(
                     feature = editing,

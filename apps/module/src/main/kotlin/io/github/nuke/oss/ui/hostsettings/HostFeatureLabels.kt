@@ -102,6 +102,7 @@ internal val featureLabels = mapOf(
     "SetVideoQuality" to FeatureLabel(R.string.host_feature_video_quality, R.string.host_feature_video_quality_description, FeatureCategory.QUALITY),
     "BlockPluginUpdates" to FeatureLabel(R.string.host_feature_plugin_updates, R.string.host_feature_plugin_updates_description, FeatureCategory.SYSTEM),
     "CustomProtocolSender" to FeatureLabel(R.string.host_feature_protocol_sender, R.string.host_feature_protocol_sender_description, FeatureCategory.SYSTEM),
+    "McpServer" to FeatureLabel(R.string.host_feature_mcp_server, R.string.host_feature_mcp_server_description, FeatureCategory.SYSTEM),
     "HideStatusBar" to FeatureLabel(R.string.host_feature_status_bar, R.string.host_feature_status_bar_description, FeatureCategory.LAYOUT),
     "LongVideoNotice" to FeatureLabel(R.string.host_feature_long_video, R.string.host_feature_long_video_description, FeatureCategory.FEED),
     "TimedClose" to FeatureLabel(R.string.host_feature_timed_close, R.string.host_feature_timed_close_description, FeatureCategory.WELLBEING),

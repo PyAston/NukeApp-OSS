@@ -31,6 +31,8 @@ internal class HostSettingsSession(
     val featureFiles: File? = null,
     // Null when the host has no pet feeding.
     val pets: PetConsole? = null,
+    // Null when the host has no MCP server.
+    val mcp: McpConsole? = null,
 ) {
     fun environment(version: ModuleVersion): EnvironmentInfo = readEnvironment(version)
     fun account(): HostAccount = readAccount()
