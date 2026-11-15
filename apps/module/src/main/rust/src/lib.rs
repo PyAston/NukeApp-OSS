@@ -1,11 +1,14 @@
-//! Native core of the module app, in four parts that each keep their logic and their JNI binding together:
+//! Native core of the module app, in five parts that each keep their logic and their JNI binding together:
 //! `protocol` is the host-independent Douyin IM packet protocol (wire codec, request wrapping, response correlation;
 //! the Kotlin side owns the host transport), `script` validates and extracts script packages for the script engine,
 //! `signer` is the module APK signer check, so that the release certificate digest it compares with lives in native
-//! code, and `riskctl` reads device trust checks (debugger, injection, Frida, root, boot state, SELinux and more) for
-//! people to look at. `error` is shared by the protocol and the script reader.
+//! code, `riskctl` reads device trust checks (debugger, injection, Frida, root, boot state, SELinux and more) for
+//! people to look at, and `mcp` is the MCP server (HTTP on loopback or the local networks, access tokens, JSON-RPC and
+//! the tools; the Kotlin side lends it threads and does what a tool asks of the app). `error` is shared by the
+//! protocol and the script reader.
 
 mod error;
+pub mod mcp;
 mod protocol;
 pub mod riskctl;
 pub mod script;

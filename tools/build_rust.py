@@ -29,7 +29,9 @@ CRATES = (
                     for name in ("abiVersion", "decode", "encode", "wrapPayload", "validateRequest", "correlate")]
         + [f"Java_io_github_nuke_oss_app_shared_integrity_NativeSignature_{name}" for name in ("verify", "signerDigest")]
         + ["Java_io_github_nuke_oss_app_shared_integrity_NativeRisk_scan"]
-        + ["Java_io_github_nuke_oss_app_shared_script_NativeScriptPackage_install"],
+        + ["Java_io_github_nuke_oss_app_shared_script_NativeScriptPackage_install"]
+        + [f"Java_io_github_nuke_oss_app_tiktok_mcp_NativeMcp_{name}"
+           for name in ("open", "serve", "configure", "snapshot", "close", "issue", "entropyBytes")],
     },
 )
 BUILD = ROOT / "build/rust"
