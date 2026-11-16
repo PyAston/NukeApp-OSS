@@ -1,5 +1,7 @@
 package io.github.nuke.oss.app.tiktok
 
+import com.bytedance.ies.im.core.sdk.testConversationModel
+import com.bytedance.im.core.model.ConversationListModel
 import io.github.nuke.oss.app.shared.data.MiniJson
 import io.github.nuke.oss.app.shared.dex.DexQueryUnavailable
 import io.github.nuke.oss.app.shared.settings.HostContactList
@@ -13,8 +15,15 @@ import io.github.nuke.oss.app.shared.settings.McpPermission
 import io.github.nuke.oss.app.shared.settings.McpProblem
 import io.github.nuke.oss.app.shared.settings.McpTokenDraft
 import io.github.nuke.oss.app.shared.settings.MemoryFeatureMemory
+import io.github.nuke.oss.app.tiktok.feature.chat.claims.ClosenessTarget
+import io.github.nuke.oss.app.tiktok.feature.chat.claims.SparkConversation
 import io.github.nuke.oss.app.tiktok.feature.general.McpServer
 import io.github.nuke.oss.app.tiktok.mcp.DouyinMcpHost
+import io.github.nuke.oss.app.tiktok.mcp.RewardCounts
+import io.github.nuke.oss.app.tiktok.mcp.RewardSource
+import io.github.nuke.oss.app.tiktok.mcp.RewardTarget
+import io.github.nuke.oss.app.tiktok.mcp.closenessRewards
+import io.github.nuke.oss.app.tiktok.mcp.sparkRewards
 import io.github.nuke.oss.app.tiktok.query.ContactQueries
 import io.github.nuke.oss.app.tiktok.protocol.PacketEndpoint
 import io.github.nuke.oss.app.tiktok.protocol.PacketResponse
@@ -24,8 +33,10 @@ import io.github.nuke.oss.app.tiktok.protocol.ProtocolQueries
 import io.github.nuke.oss.app.tiktok.protocol.ProtocolResult
 import io.github.nuke.oss.app.tiktok.query.ChatUploadQueries
 import io.github.nuke.oss.app.tiktok.sdk.chat.ContentSender
+import io.github.nuke.oss.app.tiktok.sdk.chat.ConversationModels
 import io.github.nuke.oss.app.tiktok.sdk.chat.ImageContents
 import io.github.nuke.oss.app.tiktok.sdk.chat.ImageUploadFailed
+import io.github.nuke.oss.app.tiktok.sdk.chat.ReadMarker
 import io.github.nuke.oss.app.tiktok.sdk.chat.SendResult
 import io.github.nuke.oss.core.Logger
 import org.junit.After
@@ -35,6 +46,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 import java.net.ConnectException
 import java.net.HttpURLConnection
 import java.net.InetAddress
@@ -43,10 +55,14 @@ import java.net.URL
 import java.nio.file.Files
 import java.util.Base64
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 // Contract tests for the MCP server feature against the real native server: a client speaks HTTP to the loopback port,
 // the Rust core calls back through JNI, and only the app behind it (the account, the contacts and the sender) is a
-// stand-in. The protocol and token rules themselves are covered by the crate's own tests.
+// stand-in; the claims run for real over scripted transports. The protocol and token rules themselves are covered by
+// the crate's own tests.
 class McpServerTest : HookHarness() {
     private val memory = MemoryFeatureMemory()
     private val logs = Collections.synchronizedList(ArrayList<String>())
@@ -76,9 +92,20 @@ class McpServerTest : HookHarness() {
     @Volatile private var now = 1_000_000_000_000L
     private val requests = Collections.synchronizedList(ArrayList<String>())
     @Volatile private var response: (PacketEndpoint) -> ProtocolResult<PacketResponse> = { ProtocolResult.Ok(PacketResponse(it, byteArrayOf(0x18, 0))) }
+    private val sparkTransport = FakeSparkTransport(account = 42)
+    private val petTransport = FakePetTransport(account = 42).apply { shortIds["c-alice"] = "101"; shortIds["c-bob"] = "102" }
+    // The loaded private chats and the streak friends as the claims' own lookups give them, in no particular order
+    // and with a chat that is no contact.
+    private val sparks = sparkRewards(sparkTransport) { listOf(SparkConversation("c-bob", "2", 1), SparkConversation("c-other", "3", 1), SparkConversation("c-alice", "1", 1)) }
+    @Volatile private var closeness = closenessRewards(petTransport) { listOf(ClosenessTarget("c-bob"), ClosenessTarget("c-other"), ClosenessTarget("c-alice")) }
+    private val read = Collections.synchronizedList(ArrayList<Long>())
+    @Volatile private var readAll: (Long) -> Unit = { read += it }
+    // What a stand-in claim does while it runs.
+    @Volatile private var during: () -> Unit = {}
     private val server = McpServer(
         DouyinMcpHost(readAccount, { contacts() }, sender, { "text:$it" }, images, pictures,
             { cmd, inboxType, body -> requests += "$cmd/$inboxType ${body.joinToString(",")}"; response(PacketEndpoint(cmd, inboxType)) },
+            sparks, { owner, chats -> closeness.targets(owner, chats) }, { readAll(it) },
             { logs += it }, McpServer.ID, clock = { now },
         ),
         readAccount, memory, Logger { logs += it }, addresses = { listOf("192.168.1.20") },
@@ -257,6 +284,114 @@ class McpServerTest : HookHarness() {
         assertFalse(logs.any { it.contains(body) })
     }
 
+    @Test fun `spark rewards are claimed in the private chats the token reaches and nowhere else`() {
+        val port = start()
+        val claimer = token(McpPermission.CLAIM_REWARDS)
+        // Alice has one earned reward and Bob none; the chats are taken in the order of their IDs.
+        sparkTransport.gets += sparkList(sparkTask())
+        sparkTransport.posts += 0L
+        sparkTransport.gets += sparkList()
+        val (all, failed) = call(port, claimer, "douyin_claim_sparks", emptyMap())
+        assertFalse(failed)
+        assertEquals(listOf(2L, 2L, 1L, 0L), listOf(all["targets"], all["scanned"], all["claimed"], all["unknown"]))
+        assertNull(all["next"])
+        fun asked() = sparkTransport.urls.filter { "conversation_short_id=" in it }.map { it.substringAfter("conversation_short_id=").substringBefore('&') }
+        assertEquals(listOf("1", "2"), asked())
+        assertEquals("c-alice", MiniJson.obj(sparkTransport.bodies.single()["conversation_info"])!!["conversation_id"])
+
+        sparkTransport.gets += sparkList()
+        val narrow = token(McpPermission.CLAIM_REWARDS, allowAll = false, conversations = setOf("c-bob", "c-team"))
+        assertEquals(1L, call(port, narrow, "douyin_claim_sparks", emptyMap()).first["targets"])
+        assertEquals("CONVERSATION_NOT_ALLOWED", call(port, narrow, "douyin_claim_sparks", mapOf("conversationId" to "c-alice")).first["errorCode"])
+        sparkTransport.gets += sparkList()
+        assertEquals(1L, call(port, claimer, "douyin_claim_sparks", mapOf("conversationId" to "c-alice")).first["scanned"])
+        assertEquals(listOf("1", "2", "2", "1"), asked())
+        assertEquals("c-alice", server.state().calls.first().target)
+
+        // A lookup that cannot be made is the tool's failure, with the reason; nothing was asked then.
+        contacts = { throw HostContactsUnavailable("The friend list is not loaded") }
+        assertEquals("CONTACTS_UNAVAILABLE", call(port, claimer, "douyin_claim_sparks", emptyMap()).first["errorCode"])
+        assertEquals("PERMISSION_DENIED", errorCode(rpc(port, token(McpPermission.SEND_TEXT), "tools/call", mapOf("name" to "douyin_claim_sparks"))))
+        assertEquals(4, asked().size)
+        assertFalse(logs.any { it.contains("c-alice") || it.contains("c-bob") })
+    }
+
+    @Test fun `a closeness submission that got no answer ends the run and is never repeated`() {
+        val port = start()
+        val claimer = token(McpPermission.CLAIM_REWARDS)
+        petTransport.reads += pet(behavior(5))
+        petTransport.claims += IOException("timed out")
+        val (stopped, failed) = call(port, claimer, "douyin_claim_closeness", emptyMap())
+        assertFalse(failed)
+        assertEquals(listOf(2L, 1L, 0L, 1L, 1L), listOf(stopped["targets"], stopped["scanned"], stopped["claimed"], stopped["unknown"], stopped["next"]))
+        assertEquals(listOf("timed out"), MiniJson.array(stopped["details"]))
+
+        // Going on from where it stopped reads Bob alone.
+        petTransport.reads += pet(behavior(6))
+        petTransport.claims += 0L
+        val (rest, _) = call(port, claimer, "douyin_claim_closeness", mapOf("skip" to 1))
+        assertEquals(listOf(1L, 1L), listOf(rest["scanned"], rest["claimed"]))
+        assertNull(rest["next"])
+        assertEquals(2, petTransport.sent.count { it.first == "/ttgame/social_pet/closeness/claim" })
+    }
+
+    @Test fun `a claim stops when its time is up, when the account changes and while another one runs`() {
+        val port = start()
+        val claimer = token(McpPermission.CLAIM_REWARDS)
+        contacts = { HostContactList(listOf("a", "b", "c").map { HostFriend("10$it", it, null, 1, "c-$it") }, emptyList()) }
+        val claimed = Collections.synchronizedList(ArrayList<String>())
+        during = { now += 30_000 }
+        closeness = RewardSource { _, chats ->
+            chats.map { chat -> RewardTarget(chat) { claimed += chat; during(); RewardCounts(1, 1, 0, 0, 0, 0, emptyList()) } }
+        }
+        val (first, _) = call(port, claimer, "douyin_claim_closeness", emptyMap())
+        assertEquals(listOf(3L, 2L, 2L), listOf(first["targets"], first["claimed"], first["next"]))
+        val (second, _) = call(port, claimer, "douyin_claim_closeness", mapOf("skip" to first["next"]))
+        assertEquals(1L, second["claimed"])
+        assertNull(second["next"])
+        assertEquals(listOf("c-a", "c-b", "c-c"), claimed.toList())
+
+        // The token belongs to account 42, so the run ends where another account appears.
+        during = { account = 43 }
+        val (changed, _) = call(port, claimer, "douyin_claim_closeness", emptyMap())
+        assertEquals(listOf(1L, 1L), listOf(changed["claimed"], changed["next"]))
+        assertEquals("The account changed; the claim ended early", MiniJson.array(changed["details"])!!.first())
+        account = 42
+
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        during = { entered.countDown(); release.await(10, TimeUnit.SECONDS) }
+        val running = thread { call(port, claimer, "douyin_claim_closeness", mapOf("conversationId" to "c-a")) }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        val (busy, refused) = call(port, claimer, "douyin_claim_sparks", emptyMap())
+        assertTrue(refused)
+        assertEquals("BUSY", busy["errorCode"])
+        release.countDown()
+        running.join(10_000)
+        assertTrue(sparkTransport.urls.isEmpty())
+    }
+
+    @Test fun `marking everything read runs the host's own step for the signed-in account`() {
+        val port = start()
+        val marker = token(McpPermission.MARK_READ)
+        val (answer, failed) = call(port, marker, "douyin_mark_all_read", emptyMap())
+        assertFalse(failed)
+        assertEquals("submitted", answer["status"])
+        assertEquals(listOf(42L), read.toList())
+
+        readAll = { throw IllegalStateException("The native conversation model belongs to another account") }
+        val (unready, unreadyFailed) = call(port, marker, "douyin_mark_all_read", emptyMap())
+        assertTrue(unreadyFailed)
+        assertEquals("HOST_NOT_READY", unready["errorCode"])
+        readAll = { throw NoSuchMethodException("markAllConversationRead") }
+        assertEquals("NOT_ADAPTED", call(port, marker, "douyin_mark_all_read", emptyMap()).first["errorCode"])
+
+        // Every chat is marked, so a token that names its chats may not do it.
+        val narrow = token(McpPermission.MARK_READ, allowAll = false, conversations = setOf("c-alice"))
+        assertEquals("ALL_CHATS_REQUIRED", call(port, narrow, "douyin_mark_all_read", emptyMap()).first["errorCode"])
+        assertEquals(1, read.size)
+    }
+
     @Test fun `the server opens to the local network and closes again without a restart`() {
         val port = start()
         val reader = token(McpPermission.READ_CONTACTS)
@@ -431,5 +566,26 @@ class McpServerTest : HookHarness() {
         assertTrue(server.unusable(listOf(ChatUploadQueries.UPLOAD_IMAGE, ContactQueries.FRIENDS)))
         assertTrue(server.unusable(listOf(ContactQueries.FRIENDS)))
         assertTrue(server.unusable(listOf(ContactQueries.STREAK_DAYS, ContactQueries.SINGLE_CONVERSATION_ID)))
+    }
+}
+
+// The mark-all step the MCP server and the message tab menu share, against the stand-ins for the host's model lookup.
+class ReadMarkerTest {
+    private val loader = checkNotNull(javaClass.classLoader)
+    private val model = ConversationListModel().apply { uid = 42 }
+    private val marker = ReadMarker(loader, ConversationModels(loader))
+
+    @After fun dropAccountModel() { testConversationModel = null }
+
+    @Test fun `only the model of the account it was asked for is marked`() {
+        testConversationModel = model
+        marker.markAll(42)
+        assertEquals(1, model.marked)
+        assertThrows(IllegalStateException::class.java) { marker.markAll(43) }
+        model.failure = IllegalArgumentException("closed")
+        assertThrows(IllegalStateException::class.java) { marker.markAll(42) }
+        testConversationModel = null
+        assertThrows(IllegalStateException::class.java) { marker.markAll(42) }
+        assertEquals(1, model.marked)
     }
 }

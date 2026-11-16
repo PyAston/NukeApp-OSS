@@ -1,8 +1,8 @@
 // The MCP server over real loopback sockets, with a stand-in for the app.
 
 use nuke_protocol_core::mcp::{
-    issue, Config, Contact, ContactKind, Host, HostError, Image, ImageFormat, Reach, SendStatus,
-    Sent, Server, ENTROPY_BYTES, MAX_IMAGE_BYTES, MAX_RESPONSE_BYTES,
+    issue, Claimed, Config, Contact, ContactKind, Host, HostError, Image, ImageFormat, Reach,
+    Reward, SendStatus, Sent, Server, ENTROPY_BYTES, MAX_IMAGE_BYTES, MAX_RESPONSE_BYTES,
 };
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -22,6 +22,10 @@ struct App {
     images: Vec<(Contact, Image, bool)>,
     response: Result<Vec<u8>, HostError>,
     requests: Vec<(i32, i32, Vec<u8>)>,
+    claimed: Result<Claimed, HostError>,
+    claims: Vec<(Reward, Vec<String>, usize)>,
+    marked: Result<(), HostError>,
+    marks: usize,
     // Runs while the server waits for the contact list, to change things under a call.
     while_reading_contacts: Option<Hook>,
 }
@@ -68,6 +72,23 @@ impl Host for FakeHost {
         let mut app = self.0.lock().unwrap();
         app.requests.push((cmd, inbox_type, body.to_vec()));
         app.response.clone()
+    }
+
+    fn claim(
+        &mut self,
+        reward: Reward,
+        conversations: &[String],
+        skip: usize,
+    ) -> Result<Claimed, HostError> {
+        let mut app = self.0.lock().unwrap();
+        app.claims.push((reward, conversations.to_vec(), skip));
+        app.claimed.clone()
+    }
+
+    fn mark_all_read(&mut self) -> Result<(), HostError> {
+        let mut app = self.0.lock().unwrap();
+        app.marks += 1;
+        app.marked.clone()
     }
 }
 
@@ -185,6 +206,10 @@ impl Fixture {
             images: Vec::new(),
             response: Ok(vec![0x18, 0, 0x22, 3, b'b', b'a', b'd']),
             requests: Vec::new(),
+            claimed: Ok(Claimed::default()),
+            claims: Vec::new(),
+            marked: Ok(()),
+            marks: 0,
             while_reading_contacts: None,
         }));
         let workers = (0..2)
@@ -819,6 +844,175 @@ fn a_raw_request_needs_its_own_permission_and_a_token_that_reaches_every_chat() 
     );
     for fixture in [&narrow, &sender, &other] {
         assert!(fixture.app.lock().unwrap().requests.is_empty());
+    }
+}
+
+#[test]
+fn rewards_are_claimed_only_in_the_private_chats_a_token_reaches() {
+    let fixture = Fixture::start(json!({ "permissions": ["CLAIM_REWARDS"] }));
+    let listed = fixture.rpc("tools/list", json!({}));
+    let tools: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(tools, ["douyin_claim_sparks", "douyin_claim_closeness"]);
+
+    // Every friend, never a group; the app's counts come back as they are, and a run that ended says so by no next.
+    fixture.app.lock().unwrap().claimed = Ok(Claimed {
+        targets: 2,
+        reached: 2,
+        scanned: 2,
+        claimed: 3,
+        already: 1,
+        details: vec!["why".to_owned(); 5],
+        ..Claimed::default()
+    });
+    let (all, failed) = fixture.tool("douyin_claim_sparks", json!({}));
+    assert!(!failed);
+    assert_eq!(
+        all,
+        json!({
+            "targets": 2, "scanned": 2, "claimed": 3, "already": 1, "failed": 0, "unknown": 0, "unavailable": 0,
+            "details": ["why", "why", "why"],
+        })
+    );
+    // A run that stopped early names where the next one goes on, which comes back as skip.
+    fixture.app.lock().unwrap().claimed = Ok(Claimed {
+        targets: 9,
+        reached: 4,
+        ..Claimed::default()
+    });
+    let (partial, _) = fixture.tool(
+        "douyin_claim_closeness",
+        json!({ "conversationId": "c-bob", "skip": 2 }),
+    );
+    assert_eq!(partial["next"], 4);
+    let friends = vec!["c-ann".to_owned(), "c-anna".to_owned(), "c-bob".to_owned()];
+    assert_eq!(
+        fixture.app.lock().unwrap().claims,
+        [
+            (Reward::Sparks, friends, 0),
+            (Reward::Closeness, vec!["c-bob".to_owned()], 2),
+        ]
+    );
+    assert_eq!(fixture.audit()[0]["target"], "c-bob");
+    assert_eq!(fixture.audit()[1]["target"], Value::Null);
+
+    // A group, a chat nobody has and an argument that does not read claim nothing.
+    for unknown in ["g-team", "c-nobody"] {
+        let (missing, failed) =
+            fixture.tool("douyin_claim_sparks", json!({ "conversationId": unknown }));
+        assert_eq!(
+            (missing["errorCode"].as_str(), failed),
+            (Some("CONTACT_NOT_FOUND"), true)
+        );
+    }
+    for bad in [
+        json!({ "conversationId": "" }),
+        json!({ "skip": -1 }),
+        json!({ "skip": 100001 }),
+        json!({ "limit": 1 }),
+    ] {
+        assert_eq!(
+            fixture.refused("douyin_claim_sparks", bad.clone()).0,
+            -32602,
+            "{bad}"
+        );
+    }
+    fixture.app.lock().unwrap().claimed = Err(host_error("BUSY"));
+    let (busy, failed) = fixture.tool("douyin_claim_sparks", json!({}));
+    assert_eq!((busy["errorCode"].as_str(), failed), (Some("BUSY"), true));
+    assert_eq!(fixture.app.lock().unwrap().claims.len(), 3);
+
+    // A token that names its chats claims in those alone, and not at all without the permission.
+    let narrow = Fixture::start(
+        json!({ "permissions": ["CLAIM_REWARDS"], "allowAll": false, "conversations": ["c-ann", "g-team"] }),
+    );
+    narrow.tool("douyin_claim_closeness", json!({}));
+    let (refused, failed) = narrow.tool(
+        "douyin_claim_closeness",
+        json!({ "conversationId": "c-bob" }),
+    );
+    assert_eq!(
+        (refused["errorCode"].as_str(), failed),
+        (Some("CONVERSATION_NOT_ALLOWED"), true)
+    );
+    assert_eq!(
+        narrow.app.lock().unwrap().claims,
+        [(Reward::Closeness, vec!["c-ann".to_owned()], 0)]
+    );
+    let sender = Fixture::start(json!({ "permissions": ["SEND_TEXT", "MARK_READ"] }));
+    assert_eq!(
+        sender.refused("douyin_claim_sparks", json!({})).1,
+        json!("PERMISSION_DENIED")
+    );
+    assert!(sender.app.lock().unwrap().claims.is_empty());
+}
+
+#[test]
+fn a_claim_follows_the_chats_the_token_reaches_once_the_app_has_answered() {
+    let (stored, bearer) = token(7, json!({ "permissions": ["CLAIM_REWARDS"] }));
+    let fixture = Fixture::with(json!({ "tokens": [stored.clone()] }), bearer);
+    let server = fixture.server.clone();
+    let mut narrowed = stored;
+    narrowed["allowAll"] = json!(false);
+    narrowed["conversations"] = json!(["c-bob"]);
+    let config = json!({ "tokens": [narrowed] }).to_string();
+    fixture.app.lock().unwrap().while_reading_contacts = Some(Box::new(move || {
+        server.configure(Config::parse(&config));
+    }));
+    fixture.tool("douyin_claim_sparks", json!({}));
+    assert_eq!(
+        fixture.app.lock().unwrap().claims,
+        [(Reward::Sparks, vec!["c-bob".to_owned()], 0)]
+    );
+}
+
+#[test]
+fn marking_everything_read_needs_its_permission_and_a_token_that_reaches_every_chat() {
+    let fixture = Fixture::start(json!({ "permissions": ["MARK_READ"] }));
+    let listed = fixture.rpc("tools/list", json!({}));
+    assert_eq!(listed["result"]["tools"][0]["name"], "douyin_mark_all_read");
+    let (answer, failed) = fixture.tool("douyin_mark_all_read", json!({}));
+    assert!(!failed);
+    assert_eq!(answer, json!({ "status": "submitted" }));
+    assert_eq!(
+        fixture
+            .refused("douyin_mark_all_read", json!({ "conversationId": "c-ann" }))
+            .0,
+        -32602
+    );
+    fixture.app.lock().unwrap().marked = Err(host_error("NOT_ADAPTED"));
+    let (unadapted, failed) = fixture.tool("douyin_mark_all_read", json!({}));
+    assert_eq!(
+        (unadapted["errorCode"].as_str(), failed),
+        (Some("NOT_ADAPTED"), true)
+    );
+    assert_eq!(fixture.app.lock().unwrap().marks, 2);
+
+    let narrow = Fixture::start(
+        json!({ "permissions": ["MARK_READ"], "allowAll": false, "conversations": ["c-ann"] }),
+    );
+    let (refused, failed) = narrow.tool("douyin_mark_all_read", json!({}));
+    assert_eq!(
+        (refused["errorCode"].as_str(), failed),
+        (Some("ALL_CHATS_REQUIRED"), true)
+    );
+    let claimer = Fixture::start(json!({ "permissions": ["CLAIM_REWARDS"] }));
+    assert_eq!(
+        claimer.refused("douyin_mark_all_read", json!({})).1,
+        json!("PERMISSION_DENIED")
+    );
+    let other = Fixture::start(json!({ "permissions": ["MARK_READ"] }));
+    other.app.lock().unwrap().account = Ok("2002".to_owned());
+    assert_eq!(
+        other.refused("douyin_mark_all_read", json!({})).1,
+        json!("ACCOUNT_MISMATCH")
+    );
+    for fixture in [&narrow, &claimer, &other] {
+        assert_eq!(fixture.app.lock().unwrap().marks, 0);
     }
 }
 
