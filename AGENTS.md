@@ -143,7 +143,7 @@ flock /tmp/nukeapp-gradle.lock ./gradlew verifyRelease --max-workers=1 --console
 
 ## 10 Delivery and sensitive material
 
-- Licensing is per directory: `apps/patcher` is GPL-3.0 because it embeds LSPatch, and everything else is Apache-2.0 (`LICENSE`), with the copyright statement in `NOTICE`. Apache-2.0 code never depends on, imports from or copies from the patcher; code written in `apps/patcher` is GPL-3.0. Do not paste source from a project whose license does not fit the directory it would land in; reimplement from the public specification instead (the APK signer check follows the Android APK Signature Scheme documentation).
+- Licensing is per directory: `apps/patcher` is GPL-3.0 because it embeds LSPatch, and everything else is MIT (`LICENSE`), with the copyright statement in `NOTICE`. MIT code never depends on, imports from or copies from the patcher; code written in `apps/patcher` is GPL-3.0. Do not paste source from a project whose license does not fit the directory it would land in; reimplement from the public specification instead (the APK signer check follows the Android APK Signature Scheme documentation).
 - Never commit `local.properties`, credentials, server secrets, signing private keys, keystores, real account data or user content.
 - Never commit build directories, APKs, test logs, decompilation caches or temporary packaging files. The Gradle Wrapper JAR is a required build file and stays committed.
 - Deliverables and reviewable reports may be kept in the ignored `artifacts` directory, with file links, verification results and the necessary checksums.

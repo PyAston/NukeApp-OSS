@@ -80,32 +80,32 @@ def translations(app):
 
 
 # The repository is licensed per directory: NukePatcher is GPL-3.0 because it embeds LSPatch, and everything else is
-# Apache-2.0. Each license text has one source, and the other copies must stay byte for byte the same.
+# MIT. Each license text has one source, and the other copies must stay byte for byte the same.
 def licensing(root, app, patcher):
     errors = []
     gpl_source = app / "src/main/resources/third-party/GPL-3.0.txt"
     copies = (
         (patcher / "LICENSE", gpl_source, "NukePatcher's LICENSE must be the module's GPL-3.0 text"),
-        (root / "sdk/script-sdk/LICENSE", root / "LICENSE", "The script SDK's LICENSE must be the root Apache-2.0 text"),
+        (root / "sdk/script-sdk/LICENSE", root / "LICENSE", "The script SDK's LICENSE must be the root MIT text"),
     )
     for copy, source, message in copies:
         if not copy.is_file() or not source.is_file() or copy.read_bytes() != source.read_bytes():
             errors.append(message)
     root_license = root / "LICENSE"
-    if not root_license.is_file() or not root_license.read_text().lstrip().startswith("Apache License"):
-        errors.append("The root LICENSE must be the Apache License 2.0")
+    if not root_license.is_file() or not root_license.read_text().lstrip().startswith("MIT License"):
+        errors.append("The root LICENSE must be the MIT License")
     if not (root / "NOTICE").is_file():
         errors.append("Missing the root NOTICE with the copyright statement")
     package = root / "sdk/script-sdk/package.json"
-    if not package.is_file() or '"license": "Apache-2.0"' not in package.read_text():
-        errors.append("The script SDK package must declare the Apache-2.0 license")
-    # The Apache-2.0 side may not use the GPL side: no source outside the patcher may name its package.
+    if not package.is_file() or '"license": "MIT"' not in package.read_text():
+        errors.append("The script SDK package must declare the MIT license")
+    # The MIT side may not use the GPL side: no source outside the patcher may name its package.
     for module in (app, root / "core", root / "sdk", root / "fixtures"):
         for path in module.rglob("*"):
             if path.suffix not in (".kt", ".java", ".rs", ".kts") or "build" in path.parts or "test" in path.parts:
                 continue
             if "io.github.nuke.oss.patcher" in path.read_text(errors="ignore"):
-                errors.append(f"Apache-2.0 code must not use the GPL-3.0 patcher: {path.relative_to(root)}")
+                errors.append(f"MIT code must not use the GPL-3.0 patcher: {path.relative_to(root)}")
     return errors
 
 

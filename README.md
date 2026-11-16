@@ -107,7 +107,7 @@ Hook 只会装在两处：Hook Fixture，以及抖音的主进程和少数功能
 | 目录 | 许可证 | 原因 |
 | --- | --- | --- |
 | `apps/patcher`（NukePatcher） | [GPL-3.0](apps/patcher/LICENSE) | 它内置 LSPatch（GPL-3.0） |
-| 其余：模块、`core`、`sdk`、`fixtures`、`tools` | [Apache-2.0](LICENSE) | |
+| 其余：模块、`core`、`sdk`、`fixtures`、`tools` | [MIT](LICENSE) | |
 
 版权归 dartcv，见 [NOTICE](NOTICE)。模块和修补器是各自独立的 APK，修补器只是把模块当文件嵌进目标应用，这属于并列分发，不改变各自的许可证。
 

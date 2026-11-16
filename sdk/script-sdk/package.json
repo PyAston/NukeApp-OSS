@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Types, validation and packaging for NukeApp-OSS scripts",
   "type": "module",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dartcv/NukeApp-OSS.git",
