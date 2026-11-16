@@ -872,4 +872,11 @@
     <string name="host_comment_background_failed">设置背景失败：%1$s</string>
     <string name="host_option_comment_panel_background">背景图片</string>
     <string name="host_option_comment_panel_background_description">在分享面板加“评论区背景”，用来选择或移除图片。图片从下次打开评论区起显示在评论列表后面。</string>
+    <string name="host_feature_auto_spark_claim">自动领取火星</string>
+    <string name="host_feature_auto_spark_claim_description">每天从设定的时间起，领取一次与所选好友之间已经获得的火星，和消息页长按菜单里的“一键领取火星”是同一套逻辑：只处理有火花且会话已被抖音加载的好友，不替你完成任务，提交过的请求不会重发。抖音运行时才会领取；过了时间才启动抖音，会在启动后补领当天这一次。</string>
+    <string name="host_option_auto_spark_claim_friends">好友</string>
+    <string name="host_option_auto_spark_claim_friends_description">选择要领取火星的好友。一个都不选时，领取全部有火花的好友。</string>
+    <string name="host_option_auto_spark_claim_hour">小时</string>
+    <string name="host_option_auto_spark_claim_hour_description">每天的领取时间，按手机当前时区。</string>
+    <string name="host_option_auto_spark_claim_minute">分钟</string>
 </resources>

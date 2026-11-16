@@ -8,9 +8,11 @@ import io.github.nuke.oss.app.tiktok.sdk.chat.ConversationModels
 import io.github.nuke.oss.app.tiktok.sdk.chat.ImAccount
 
 // Friends the claims may touch: another user's account, a positive cached streak and a known one-to-one chat. A missing
-// or zero count does not allow a reward query.
-internal fun streakFriends(contacts: HostContacts, account: Long): List<Pair<String, String>> = contacts.load().friends
-    .filter { friend -> friend.uid.toLongOrNull()?.let { it > 0 && it != account } == true && (friend.streakDays ?: 0) > 0 }
+// or zero count does not allow a reward query. chosen narrows them to those user IDs; empty keeps every such friend.
+internal fun streakFriends(contacts: HostContacts, account: Long, chosen: Set<Long> = emptySet()): List<Pair<String, String>> = contacts.load().friends
+    .filter { friend ->
+        friend.uid.toLongOrNull()?.let { it > 0 && it != account && (chosen.isEmpty() || it in chosen) } == true && (friend.streakDays ?: 0) > 0
+    }
     .map { it.uid to it.conversationId }
 
 internal fun closenessTargets(contacts: HostContacts, account: Long): List<ClosenessTarget> =
@@ -22,10 +24,12 @@ internal class LoadedSparkConversations(
     private val models: ConversationModels,
     private val account: ImAccount,
     private val hostClassLoader: ClassLoader,
+    // The friends' user IDs a scheduled claim is limited to; empty means every friend with a positive streak.
+    private val chosen: Set<Long> = emptySet(),
 ) : SparkConversations {
     override fun load(account: Long): List<SparkConversation> {
         check(this.account.id() == account) { "Account changed before the spark lookup" }
-        val friendChats = streakFriends(contacts, account).map { it.second }.toSet()
+        val friendChats = streakFriends(contacts, account, chosen).map { it.second }.toSet()
         if (friendChats.isEmpty()) return emptyList()
         val model = models.current(account)
         val loaded = model.asResolver().firstMethod { name = "getAllConversationSync"; emptyParameters(); superclass() }.invoke() as? List<*>

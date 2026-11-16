@@ -168,6 +168,7 @@ internal val featureLabels = mapOf(
     "VoiceForward" to FeatureLabel(R.string.host_feature_voice_forward, R.string.host_feature_voice_forward_description, FeatureCategory.CHAT),
     "ShareFriendGroups" to FeatureLabel(R.string.host_feature_share_friend_groups, R.string.host_feature_share_friend_groups_description, FeatureCategory.SHARING),
     "AutoPetFeed" to FeatureLabel(R.string.host_feature_auto_pet_feed, R.string.host_feature_auto_pet_feed_description, FeatureCategory.CHAT_EXTRAS),
+    "AutoSparkClaim" to FeatureLabel(R.string.host_feature_auto_spark_claim, R.string.host_feature_auto_spark_claim_description, FeatureCategory.CHAT_EXTRAS),
 )
 
 // Labels for a feature's options, keyed "<feature id>/<option key>". A choice with no label shows its raw ID.
@@ -325,6 +326,9 @@ internal val optionLabels = mapOf<String, OptionLabel>(
     "AutoPetFeed/food-id" to OptionLabel(R.string.host_option_pet_food_id, R.string.host_option_pet_food_id_description),
     "AutoPetFeed/allow-paid" to OptionLabel(R.string.host_option_pet_allow_paid, R.string.host_option_pet_allow_paid_description),
     "AutoPetFeed/max-price" to OptionLabel(R.string.host_option_pet_max_price),
+    "AutoSparkClaim/friends" to OptionLabel(R.string.host_option_auto_spark_claim_friends, R.string.host_option_auto_spark_claim_friends_description),
+    "AutoSparkClaim/hour" to OptionLabel(R.string.host_option_auto_spark_claim_hour, R.string.host_option_auto_spark_claim_hour_description),
+    "AutoSparkClaim/minute" to OptionLabel(R.string.host_option_auto_spark_claim_minute),
 )
 
 internal fun optionLabel(featureId: String, key: String): OptionLabel? = optionLabels["$featureId/$key"]

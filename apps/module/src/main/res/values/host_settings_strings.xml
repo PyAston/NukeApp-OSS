@@ -873,4 +873,11 @@
     <string name="host_comment_background_failed">Could not set the background: %1$s</string>
     <string name="host_option_comment_panel_background">Background image</string>
     <string name="host_option_comment_panel_background_description">Adds Comment background to the share panel to choose an image (or remove it). The image shows behind the comment list from the next comment panel on.</string>
+    <string name="host_feature_auto_spark_claim">Claim sparks automatically</string>
+    <string name="host_feature_auto_spark_claim_description">Once a day, from the chosen time, claims the spark rewards you have already earned with the chosen friends, the way Claim sparks in the message tab menu does. Only friends with a streak whose chat Douyin has loaded are checked, tasks are never completed for you, and a submission is never sent twice. Runs while Douyin is running; if Douyin starts after the time, the day is caught up then.</string>
+    <string name="host_option_auto_spark_claim_friends">Friends</string>
+    <string name="host_option_auto_spark_claim_friends_description">Pick the friends whose sparks are claimed. With none picked, every friend with a streak is included.</string>
+    <string name="host_option_auto_spark_claim_hour">Hour</string>
+    <string name="host_option_auto_spark_claim_hour_description">The daily claim time, in this phone\'s time zone.</string>
+    <string name="host_option_auto_spark_claim_minute">Minute</string>
 </resources>
