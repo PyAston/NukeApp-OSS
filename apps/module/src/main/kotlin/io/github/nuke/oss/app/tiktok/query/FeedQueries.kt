@@ -81,9 +81,19 @@ internal object FeedQueries {
         }
     }
 
-    // Decides whether the progress bar is hidden for short videos; it logs the duration it hid the bar for.
-    val PROGRESS_BAR_GATE = method {
-        matcher { usingStrings("getDefaultState, aweme.duration = ", "shouldHide: true, duration = ") }
+    // Decides whether the progress bar is hidden for a video (an ad, or one of 30 seconds or less). It has no string
+    // of its own: the seek bar component's default state, which logs the duration it hid the bar for, asks it, and
+    // so do the pinch and divider components. Douyin 40.7.0 and 41.0.0 both have it as the one boolean call taking
+    // the Aweme alone.
+    val PROGRESS_BAR_GATE = DexQuery(version = 2) { bridge ->
+        val states = bridge.findMethod {
+            matcher { usingStrings("getDefaultState, aweme.duration = ", "shouldHide: true, duration = ") }
+        }
+        check(states.size == 1) { "expected one default state, found ${states.size}: " + states.take(8).joinToString { it.descriptor } }
+        val gates = states.single().invokes.distinctBy { it.descriptor }
+            .filter { it.returnTypeName == "boolean" && it.paramTypeNames == listOf(AWEME) }
+        check(gates.size == 1) { "expected one gate, found ${gates.size}: " + gates.joinToString { it.descriptor } }
+        gates.single().descriptor
     }
 
     // The home feed panel's two receivers of a video list, found the way the old module does: the refresh path logs

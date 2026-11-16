@@ -3,7 +3,6 @@ package io.github.nuke.oss.app.tiktok.feature.playback
 import io.github.nuke.oss.app.shared.dex.DexResolver
 import io.github.nuke.oss.app.shared.dex.UsesDexQueries
 import io.github.nuke.oss.app.shared.dex.methods
-import io.github.nuke.oss.app.shared.reflect.declaredMethodsNamed
 import io.github.nuke.oss.app.shared.registry.HookEntry
 import io.github.nuke.oss.app.tiktok.feature.TikTokFeature
 import io.github.nuke.oss.app.tiktok.feature.TikTokFeatureServices
@@ -13,8 +12,8 @@ import io.github.nuke.oss.hook.api.HookSpec
 import io.github.nuke.oss.runtime.FeatureScope
 import io.github.nuke.oss.runtime.RuntimeFeature
 
-// The player hides the progress bar for short videos in one method. Skipping it, in every void overload, leaves the bar
-// as it was. A second route for older hosts, raising the bar views' alpha, is not implemented.
+// The player asks one check whether to hide the progress bar for a video, which it does for short ones. Answering no
+// leaves the bar as it was. A second route for older hosts, raising the bar views' alpha, is not implemented.
 @HookEntry
 internal class AlwaysShowProgress(
     private val resolver: DexResolver,
@@ -25,15 +24,12 @@ internal class AlwaysShowProgress(
 
     override fun install(scope: FeatureScope) {
         val gate = resolver.methods(hostClassLoader, FeedQueries.PROGRESS_BAR_GATE).single()
-        val overloads = gate.declaringClass.declaredMethodsNamed(gate.name).filter { it.returnType == Void.TYPE }
-        check(overloads.isNotEmpty()) { "No void ${gate.name} in ${gate.declaringClass.name}" }
-        overloads.forEachIndexed { index, method ->
-            scope.hooks.install(method, HookSpec(
-                id = "KeepProgress$index",
-                requiredCapabilities = setOf(HookCapability.EARLY_RETURN),
-                before = { it.returnEarly(null) },
-            ))
-        }
+        check(gate.returnType == Boolean::class.javaPrimitiveType) { "${gate.declaringClass.name}.${gate.name} is not a boolean check" }
+        scope.hooks.install(gate, HookSpec(
+            id = "KeepProgress",
+            requiredCapabilities = setOf(HookCapability.EARLY_RETURN),
+            before = { it.returnEarly(false) },
+        ))
     }
 
     companion object : TikTokFeature {

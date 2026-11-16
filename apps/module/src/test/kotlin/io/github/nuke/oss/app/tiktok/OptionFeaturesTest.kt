@@ -445,22 +445,24 @@ class OptionFeaturesTest : HookHarness() {
     }
 
     class ProgressGate {
-        var hidden = 0
-        fun hideForShortVideo() { hidden++ }
-        fun hideForShortVideo(seconds: Int): Boolean = seconds > 0
+        fun hidesFor(seconds: Int): Boolean = seconds <= 30
+        fun hide() = Unit
     }
 
-    @Test fun `the progress bar gate is skipped in its void overload only`() {
-        val gate = method(ProgressGate::class.java, "hideForShortVideo")
+    @Test fun `the progress bar gate answers no while the feature is on`() {
+        val gate = method(ProgressGate::class.java, "hidesFor", Int::class.javaPrimitiveType!!)
         val feature = AlwaysShowProgress(resolver(FeedQueries.PROGRESS_BAR_GATE to listOf(gate)), loader)
         enable(feature)
         val host = ProgressGate()
-        backend.call(gate, host)
-        assertEquals(0, host.hidden)
-        assertEquals(true, backend.call(method(ProgressGate::class.java, "hideForShortVideo", Int::class.javaPrimitiveType!!), host, 3))
+        assertEquals(false, backend.call(gate, host, 3))
+        assertEquals(false, backend.call(gate, host, 60))
         disable(feature)
-        backend.call(gate, host)
-        assertEquals(1, host.hidden)
+        assertEquals(true, backend.call(gate, host, 3))
+    }
+
+    @Test fun `a progress bar gate that is not a boolean check fails the install`() {
+        val feature = AlwaysShowProgress(resolver(FeedQueries.PROGRESS_BAR_GATE to listOf(method(ProgressGate::class.java, "hide"))), loader)
+        failsToInstall(feature, "is not a boolean check")
     }
 
     @Test fun `the option lists have unique stored choices`() {
