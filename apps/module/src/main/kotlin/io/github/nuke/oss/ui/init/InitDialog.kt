@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
@@ -38,6 +40,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.nuke.oss.R
 import io.github.nuke.oss.app.shared.dex.AnalysisStep
+import io.github.nuke.oss.app.shared.init.FeatureTemplate
 import io.github.nuke.oss.app.shared.init.InitStage
 import io.github.nuke.oss.app.shared.init.InitState
 import io.github.nuke.oss.app.shared.init.progress
@@ -64,6 +67,7 @@ internal fun InitDialog(
     state: InitState,
     onLanguage: (LanguageChoice) -> Unit,
     onBugReports: (Boolean) -> Unit,
+    onTemplate: (String?) -> Unit,
     onContinue: () -> Unit,
     onRetry: () -> Unit,
     onClose: () -> Unit,
@@ -77,7 +81,12 @@ internal fun InitDialog(
                 title = stringResource(R.string.init_title),
                 properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
                 actions = { NukeDialogAccentButton(stringResource(R.string.init_continue), onContinue, Modifier.weight(1f)) },
-            ) { Choices(state.ui.language, stage.bugReports, onLanguage, onBugReports) }
+            ) {
+                // The choices can outgrow a small or landscape window; the title and the button stay in place.
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    Choices(state.ui.language, stage, state.templates, onLanguage, onBugReports, onTemplate)
+                }
+            }
             InitStage.Closed -> Unit
             else -> AnalysisDialog(stage, onRetry, onClose, onRestart)
         }
@@ -169,9 +178,11 @@ private fun analysisMessage(stage: InitStage): String = when (stage) {
 @Composable
 private fun ColumnScope.Choices(
     language: LanguageChoice,
-    bugReports: Boolean,
+    stage: InitStage.Choices,
+    templates: List<FeatureTemplate>,
     onLanguage: (LanguageChoice) -> Unit,
     onBugReports: (Boolean) -> Unit,
+    onTemplate: (String?) -> Unit,
 ) {
     NukeDialogBodyText(stringResource(R.string.init_intro))
     Spacer(Modifier.height(20.dp))
@@ -188,9 +199,55 @@ private fun ColumnScope.Choices(
         onOptionSelected = { onLanguage(languages[it]) },
         modifier = Modifier.fillMaxWidth(),
     )
+    if (templates.isNotEmpty()) {
+        Spacer(Modifier.height(16.dp))
+        TemplateChoice(templates, stage.template, onTemplate)
+    }
     Spacer(Modifier.height(12.dp))
-    BugReportsRow(bugReports, onBugReports)
+    BugReportsRow(stage.bugReports, onBugReports)
 }
+
+// "None" first and selected until the user picks a template: switching features on is opt-in. The line below says
+// what the selected one does, since its name alone does not.
+@Composable
+private fun TemplateChoice(templates: List<FeatureTemplate>, selected: String?, onTemplate: (String?) -> Unit) {
+    Text(
+        stringResource(R.string.init_template),
+        style = MaterialTheme.typography.labelMedium,
+        color = NukeTheme.colors.textSecondary,
+    )
+    Spacer(Modifier.height(8.dp))
+    val chosen = templates.firstOrNull { it.id == selected }
+    NukeSegmentedControl(
+        selectedIndex = if (chosen == null) 0 else templates.indexOf(chosen) + 1,
+        options = listOf(stringResource(R.string.init_template_none)) + templates.map { template ->
+            templateLabels[template.id]?.let { stringResource(it.title) } ?: template.id
+        },
+        onOptionSelected = { index -> onTemplate(templates.getOrNull(index - 1)?.id) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = when {
+            chosen == null -> stringResource(R.string.init_template_none_description)
+            else -> stringResource(templateLabels[chosen.id]?.description ?: R.string.init_template_other_description, chosen.features.size)
+        },
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        color = NukeTheme.colors.textSecondary,
+        fontSize = 13.sp,
+        lineHeight = 19.sp,
+        letterSpacing = 0.sp,
+    )
+}
+
+private class TemplateLabel(val title: Int, val description: Int)
+
+// Template IDs as the host adapter names them. A template this build has no label for shows its raw ID and the
+// number of features it switches on, instead of being hidden. Every description takes that number.
+private val templateLabels = mapOf(
+    "essentials" to TemplateLabel(R.string.init_template_essentials, R.string.init_template_essentials_description),
+    "recommended" to TemplateLabel(R.string.init_template_recommended, R.string.init_template_recommended_description),
+)
 
 // The opt-in shared by the init and the host settings. What it promises has to match what the build does.
 @Composable

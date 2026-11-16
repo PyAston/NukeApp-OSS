@@ -21,9 +21,14 @@ interface SetupStore {
     fun setBugReports(enabled: Boolean)
 }
 
+// A set of features the first-launch setup can switch on in one go. The host adapter names the templates and their
+// features; the dialog labels them by ID.
+data class FeatureTemplate(val id: String, val features: Set<String>)
+
 sealed interface InitStage {
-    // Asked once, before the first analysis. Bug reports start off: sharing them is opt-in.
-    data class Choices(val bugReports: Boolean) : InitStage
+    // Asked once, before the first analysis. Bug reports start off: sharing them is opt-in. So does every template:
+    // template is the ID of the chosen one, or null to leave the switches as they are.
+    data class Choices(val bugReports: Boolean, val template: String? = null) : InitStage
     // The step the search is on; done counts the targets looked up so far out of total.
     data class Analyzing(val step: AnalysisStep, val done: Int, val total: Int) : InitStage
     data class Failed(val reason: String) : InitStage
@@ -33,7 +38,7 @@ sealed interface InitStage {
     data object Closed : InitStage
 }
 
-data class InitState(val ui: UiConfig, val stage: InitStage)
+data class InitState(val ui: UiConfig, val stage: InitStage, val templates: List<FeatureTemplate> = emptyList())
 
 // NukeCore's split of the analysis bar: the native library at 2%, the Dex environment at 38%, the targets filling
 // 40% to 90%, and 100% once every target has an outcome. Null for a stage that has no bar of its own.
@@ -64,12 +69,17 @@ internal class HostInit(
     private val analyze: (onProgress: (step: AnalysisStep, done: Int, total: Int) -> Unit) -> DexAnalysis,
     private val presenter: InitPresenter,
     private val logger: Logger,
+    // The templates on offer and the write that stores one feature's switch as on. A template only ever switches
+    // features on, and only when the choices are confirmed, so it never touches a switch the user set later.
+    templates: List<FeatureTemplate> = emptyList(),
+    private val enable: (featureId: String) -> Unit = {},
     private val background: (Runnable) -> Unit = { work -> Thread(work, "NukeInit").apply { isDaemon = true }.start() },
 ) : RuntimeFeature {
     private val running = AtomicBoolean()
     private val mutableState = MutableStateFlow(InitState(
         ui.read(),
         if (setup.bugReports() == null) InitStage.Choices(bugReports = false) else STARTING,
+        templates,
     ))
     val state: StateFlow<InitState> = mutableState.asStateFlow()
 
@@ -90,10 +100,23 @@ internal class HostInit(
         current.copy(stage = stage.copy(bugReports = enabled))
     }
 
+    // Null clears the choice. An ID that is not on offer is ignored.
+    fun setTemplate(templateId: String?) = mutableState.update { current ->
+        val stage = current.stage as? InitStage.Choices ?: return@update current
+        if (templateId != null && current.templates.none { it.id == templateId }) return@update current
+        current.copy(stage = stage.copy(template = templateId))
+    }
+
+    // The switches are stored before the answer that marks the choices as asked, so a template is never half applied
+    // and then skipped. They take effect with the restart that follows the analysis.
     fun confirm() {
-        val stage = state.value.stage as? InitStage.Choices ?: return
+        val current = state.value
+        val stage = current.stage as? InitStage.Choices ?: return
+        val template = current.templates.firstOrNull { it.id == stage.template }
+        template?.features?.forEach(enable)
         setup.setBugReports(stage.bugReports)
-        logger.log("feature=$id init_choices language=${state.value.ui.language} bug_reports=${stage.bugReports}")
+        logger.log("feature=$id init_choices language=${current.ui.language} bug_reports=${stage.bugReports} " +
+            "template=${template?.id ?: "none"} enabled=${template?.features?.size ?: 0}")
         startAnalysis()
     }
 

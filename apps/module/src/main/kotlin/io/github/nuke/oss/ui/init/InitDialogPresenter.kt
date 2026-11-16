@@ -66,6 +66,7 @@ internal class InitDialogPresenter(private val build: BuildIdentity, private val
                 state = state,
                 onLanguage = init::setLanguage,
                 onBugReports = init::setBugReports,
+                onTemplate = init::setTemplate,
                 onContinue = init::confirm,
                 onRetry = init::retry,
                 onClose = init::close,

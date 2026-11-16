@@ -176,6 +176,11 @@ class TikTokHostAdapter internal constructor(
                 analyze = { progress -> host.resolver.analyze(progress) },
                 presenter = presenter(environment.event.build, environment.logger),
                 logger = environment.logger,
+                // Only features this build registers in the main process, so a template never stores a stray switch.
+                templates = featureTemplates.map { template ->
+                    template.copy(features = template.features.filterTo(LinkedHashSet()) { id -> features.any { it.feature.id == id } })
+                },
+                enable = { id -> host.switches.write(id, true) },
             )
             manager.register(init)
             environment.logger.log("feature=$INIT_ID init_pending queries=${pending.size}")
