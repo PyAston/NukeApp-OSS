@@ -82,4 +82,7 @@
     <string name="manager_step_active">当前步骤</string>
     <string name="manager_step_pending">未开始</string>
     <string name="manager_step_failed">未完成</string>
+    <string name="manager_language">语言</string>
+    <string name="manager_language_system">跟随系统</string>
+    <string name="manager_more">更多</string>
 </resources>

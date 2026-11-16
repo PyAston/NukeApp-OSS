@@ -87,4 +87,9 @@
     <string name="manager_step_active">Current step</string>
     <string name="manager_step_pending">Not started</string>
     <string name="manager_step_failed">Not completed</string>
+    <string name="manager_language">Language</string>
+    <string name="manager_language_system">Follow system</string>
+    <string name="manager_language_english" translatable="false">English</string>
+    <string name="manager_language_chinese" translatable="false">中文</string>
+    <string name="manager_more">More</string>
 </resources>

@@ -24,11 +24,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.Check
+import com.adamglin.phosphoricons.regular.DotsThreeVertical
 import io.github.nuke.oss.patcher.R
 
 enum class PatchPhase { IDLE, IMPORTING, READY, PATCHING, SUCCEEDED, FAILED }
@@ -93,9 +102,12 @@ fun PatcherScreen(
     onPatch: () -> Unit,
     onExportPatchedApk: () -> Unit,
     onSelectModule: () -> Unit,
+    language: String,
+    onLanguage: (String) -> Unit,
 ) {
     NukeTheme {
         var showAbout by rememberSaveable { mutableStateOf(false) }
+        var showLanguage by rememberSaveable { mutableStateOf(false) }
         val busy = state.isExporting || state.phase == PatchPhase.IMPORTING || state.phase == PatchPhase.PATCHING
         val complete = state.phase == PatchPhase.SUCCEEDED && state.outputName != null
         val moduleReady = state.moduleApkName != null
@@ -127,7 +139,7 @@ fun PatcherScreen(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
-                    item { Header { showAbout = true } }
+                    item { Header(onLanguage = { showLanguage = true }) { showAbout = true } }
                     item {
                         Panel {
                             Step(1, if (moduleReady) StepStatus.DONE else StepStatus.ACTIVE) { status ->
@@ -177,17 +189,34 @@ fun PatcherScreen(
             }
         }
         if (showAbout) AboutDialog(state.appVersion) { showAbout = false }
+        if (showLanguage) LanguageDialog(language, onSelect = {
+            showLanguage = false
+            if (it != language) onLanguage(it)
+        }) { showLanguage = false }
     }
 }
 
 @Composable
-private fun Header(onAbout: () -> Unit) {
+private fun Header(onLanguage: () -> Unit, onAbout: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BrandMark()
             Overline(stringResource(R.string.manager_app_name), Modifier.weight(1f).padding(start = 10.dp))
-            TextButton(onClick = onAbout, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text(stringResource(R.string.manager_tab_about))
+            Box {
+                var open by remember { mutableStateOf(false) }
+                IconButton(onClick = { open = true }) {
+                    Icon(PhosphorIcons.Regular.DotsThreeVertical, stringResource(R.string.manager_more))
+                }
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.manager_language)) }, onClick = {
+                        open = false
+                        onLanguage()
+                    })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.manager_tab_about)) }, onClick = {
+                        open = false
+                        onAbout()
+                    })
+                }
             }
         }
         Text(stringResource(R.string.manager_patch_title), Modifier.semantics { heading() },
@@ -453,6 +482,41 @@ private fun AboutDialog(version: String, onDismiss: () -> Unit) {
                 SelectionContainer {
                     Text(stringResource(R.string.manager_patch_engine_source), style = CodeStyle.copy(fontSize = 12.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.manager_close))
+            }
+        },
+    )
+}
+
+// The choice takes effect at once: the Activity is recreated in the new language.
+@Composable
+private fun LanguageDialog(current: String, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.extraLarge,
+        title = { Text(stringResource(R.string.manager_language), style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(Modifier.selectableGroup()) {
+                AppLanguage.CHOICES.forEach { choice ->
+                    val label = stringResource(when (choice) {
+                        "en" -> R.string.manager_language_english
+                        "zh" -> R.string.manager_language_chinese
+                        else -> R.string.manager_language_system
+                    })
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .selectable(selected = choice == current, role = Role.RadioButton) { onSelect(choice) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = choice == current, onClick = null)
+                        Text(label, Modifier.padding(start = 12.dp), style = MaterialTheme.typography.bodyLarge)
+                    }
                 }
             }
         },

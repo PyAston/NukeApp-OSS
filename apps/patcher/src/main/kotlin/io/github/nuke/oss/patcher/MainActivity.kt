@@ -1,5 +1,6 @@
 package io.github.nuke.oss.patcher
 
+import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -10,6 +11,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import io.github.nuke.oss.patcher.ui.AppLanguage
 import io.github.nuke.oss.patcher.ui.PatcherScreen
 import io.github.nuke.oss.patcher.ui.PatcherViewModel
 
@@ -25,7 +27,11 @@ class MainActivity : ComponentActivity() {
         uri?.let(patcher::exportPatched)
     }
 
+    override fun attachBaseContext(base: Context) = super.attachBaseContext(AppLanguage.wrap(base))
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Before the view model, whose messages come from the application's resources.
+        AppLanguage.applyToApplication(applicationContext)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         lifecycleScope.launch {
@@ -39,6 +45,8 @@ class MainActivity : ComponentActivity() {
                 onSelectModule = { selectModule.launch(APK_TYPES) },
                 onPatch = patcher::patch,
                 onExportPatchedApk = { exportPatched.launch(state.outputName ?: "nuke-patched.apk") },
+                language = AppLanguage.current(this),
+                onLanguage = { AppLanguage.select(this, it) },
             )
         }
     }
