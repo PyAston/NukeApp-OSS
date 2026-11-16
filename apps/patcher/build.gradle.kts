@@ -85,7 +85,7 @@ android {
         applicationId = "io.github.nuke.oss.patcher"
         minSdk = 28
         targetSdk = 37
-        versionCode = 2
+        versionCode = 3
         versionName = rootProject.version.toString()
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
