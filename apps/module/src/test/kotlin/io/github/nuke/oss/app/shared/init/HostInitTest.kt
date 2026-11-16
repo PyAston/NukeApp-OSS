@@ -31,6 +31,8 @@ class HostInitTest {
     private var presented = 0
     private var analyses = 0
     private var outcome: () -> DexAnalysis = { DexAnalysis(3, mapOf("b" to "not located")) }
+    private val templates = listOf(FeatureTemplate("small", linkedSetOf("A")), FeatureTemplate("large", linkedSetOf("A", "B")))
+    private val enabled = ArrayList<String>()
 
     private fun init() = HostInit(
         "host.init", ui, setup,
@@ -42,6 +44,9 @@ class HostInitTest {
         },
         presenter = { _, _ -> presented++ },
         logger = Logger { logged += it },
+        templates = templates,
+        // Recorded with whether the choices were already stored, to pin the order of the two writes.
+        enable = { enabled += "$it:${bugReports != null}" },
         background = { queued += it },
     )
 
@@ -76,6 +81,58 @@ class HostInitTest {
         assertEquals(InitStage.Restarting(searched = 3, failed = 1), init.state.value.stage)
         assertEquals(1, analyses)
         assertTrue(logged.any { it.contains("init_analyzed searched=3 failed=1 b") })
+    }
+
+    @Test fun `the templates are on offer with none chosen, and continuing without one switches nothing on`() {
+        val init = init().installed()
+        assertEquals(templates, init.state.value.templates)
+        assertNull((init.state.value.stage as InitStage.Choices).template)
+        init.confirm()
+        assertTrue(enabled.isEmpty())
+        assertTrue(logged.any { it.contains("template=none enabled=0") })
+    }
+
+    @Test fun `a chosen template switches its features on at continue, before the choices count as answered`() {
+        val init = init().installed()
+        init.setTemplate("small")
+        init.setTemplate("large")
+        assertEquals(InitStage.Choices(bugReports = false, template = "large"), init.state.value.stage)
+        assertTrue(enabled.isEmpty())
+        init.confirm()
+        assertEquals(listOf("A:false", "B:false"), enabled)
+        assertEquals(false, bugReports)
+        assertEquals(1, queued.size)
+        assertTrue(logged.any { it.contains("template=large enabled=2") })
+        init.confirm()
+        assertEquals(2, enabled.size)
+    }
+
+    @Test fun `a template can be cleared again and an unknown one is ignored`() {
+        val init = init().installed()
+        init.setTemplate("small")
+        init.setTemplate("missing")
+        assertEquals("small", (init.state.value.stage as InitStage.Choices).template)
+        init.setTemplate(null)
+        assertNull((init.state.value.stage as InitStage.Choices).template)
+        init.confirm()
+        assertTrue(enabled.isEmpty())
+    }
+
+    @Test fun `a template is applied only through the dialog`() {
+        val init = init().installed()
+        init.setTemplate("large")
+        init.continueWithoutUi("module package is not installed")
+        init.setTemplate("small")
+        init.confirm()
+        runQueued()
+        assertTrue(enabled.isEmpty())
+        assertNull(bugReports)
+
+        bugReports = true
+        val answered = init().installed()
+        answered.setTemplate("large")
+        answered.confirm()
+        assertTrue(enabled.isEmpty())
     }
 
     @Test fun `progress is published while the analysis runs`() {

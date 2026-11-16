@@ -63,6 +63,7 @@ class TikTokHostAdapterTest {
         enabled: (String, Boolean) -> Boolean = { _, default -> default },
         pending: List<DexQuery> = emptyList(),
         entries: MutableMap<String, String> = HashMap(),
+        written: MutableMap<String, Boolean>? = null,
     ) = TikTokHostAdapter({ _, _ ->
         val cache = object : DexCache {
             override fun get(key: String) = entries[key]
@@ -76,7 +77,9 @@ class TikTokHostAdapterTest {
         val search = DexSearch { queries, onStep, onEach -> searches++; answer.search(queries, onStep, onEach) }
         TikTokServices(DexResolver(cache, "scope", search, generatedDexQueries), object : FeatureSwitches {
             override fun read(featureId: String, default: Boolean) = enabled(featureId, default)
-            override fun write(featureId: String, enabled: Boolean) = error("Registration never writes switches")
+            override fun write(featureId: String, enabled: Boolean) {
+                checkNotNull(written) { "Registration never writes switches" }[featureId] = enabled
+            }
         }, object : UiConfigStore {
             override val backgroundFile = java.io.File("unused-background")
             override fun read() = UiConfig()
@@ -196,6 +199,33 @@ class TikTokHostAdapterTest {
         assertFalse(manager.snapshot().any { it.id == SettingsEntry.ID })
         assertEquals(0, searches)
         assertEquals(1, presented.size)
+    }
+
+    @Test fun `every template names registered features and the larger one holds the smaller`() {
+        register(services())
+        val registered = manager.snapshot().map { it.id }.toSet()
+        for (template in featureTemplates) {
+            assertTrue(template.id, template.features.isNotEmpty())
+            assertEquals(template.id, emptySet<String>(), template.features - registered)
+        }
+        assertEquals(listOf(TEMPLATE_ESSENTIALS, TEMPLATE_RECOMMENDED), featureTemplates.map { it.id })
+        assertTrue(featureTemplates[1].features.containsAll(featureTemplates[0].features))
+    }
+
+    @Test fun `the init offers the templates and a chosen one stores its switches as on`() {
+        val written = LinkedHashMap<String, Boolean>()
+        bugReports = null
+        register(services(pending = listOf(TikTokQueries.DOUBLE_DIGG), written = written))
+        val init = presented.single()
+        assertEquals(featureTemplates, init.state.value.templates)
+        assertTrue(written.isEmpty())
+        init.setTemplate(TEMPLATE_ESSENTIALS)
+        init.confirm()
+        assertEquals(featureTemplates.first().features.associateWith { true }, written)
+        // Continuing started the analysis on its own thread; let it finish before the test ends.
+        val deadline = System.nanoTime() + 5_000_000_000
+        while (init.state.value.stage !is InitStage.Restarting && System.nanoTime() < deadline) Thread.sleep(10)
+        assertEquals(InitStage.Restarting(searched = 1, failed = 0), init.state.value.stage)
     }
 
     @Test fun `the init analyses every query and the next launch installs from the cache without searching`() {
