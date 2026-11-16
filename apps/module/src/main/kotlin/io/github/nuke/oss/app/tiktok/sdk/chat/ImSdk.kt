@@ -3,6 +3,7 @@ package io.github.nuke.oss.app.tiktok.sdk.chat
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.kavaref.extension.toClass
 import io.github.nuke.oss.app.shared.reflect.NamedCall
+import io.github.nuke.oss.app.shared.reflect.declaredMethodNamed
 import java.lang.reflect.InvocationTargetException
 
 // The account the IM SDK is signed in as, read from its environment service. Unlike the account service behind the
@@ -46,5 +47,27 @@ internal class ConversationModels(private val hostClassLoader: ClassLoader) {
 
     private companion object {
         const val HELPER = "com.bytedance.ies.im.core.sdk.MultiInstanceHelperKt"
+    }
+}
+
+// The IM SDK's own mark-all step for an account's conversation list model, the one the message tab menu runs: it
+// covers the conversations in the SDK's database and the stranger inbox. It only submits, off the main thread; nothing
+// reports whether the server took it, and the read-report features still apply to what it sends. A host whose model
+// has another shape throws IllegalStateException with the reason.
+internal class ReadMarker(private val hostClassLoader: ClassLoader, private val models: ConversationModels) {
+    fun markAll(account: Long) {
+        val model = models.current(account)
+        val markAll = CONVERSATION_LIST.toClass(hostClassLoader).declaredMethodNamed("markAllConversationRead")
+        check(markAll.parameterCount == 0 && markAll.returnType == Void.TYPE) { "$CONVERSATION_LIST.markAllConversationRead has the wrong shape" }
+        check(markAll.declaringClass.isInstance(model)) { "Unsupported conversation list model ${model.javaClass.name}" }
+        try {
+            markAll.invoke(model)
+        } catch (error: InvocationTargetException) {
+            throw IllegalStateException("The host could not mark its conversations read: ${error.targetException.javaClass.simpleName}", error)
+        }
+    }
+
+    private companion object {
+        const val CONVERSATION_LIST = "com.bytedance.im.core.model.ConversationListModel"
     }
 }

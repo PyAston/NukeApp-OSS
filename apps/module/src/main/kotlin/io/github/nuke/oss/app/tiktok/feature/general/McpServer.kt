@@ -5,6 +5,7 @@ import io.github.nuke.oss.app.shared.dex.DexQuery
 import io.github.nuke.oss.app.shared.dex.UsesDexQueries
 import io.github.nuke.oss.app.shared.registry.HookEntry
 import io.github.nuke.oss.app.shared.settings.FeatureMemory
+import io.github.nuke.oss.app.shared.settings.HostContacts
 import io.github.nuke.oss.app.shared.settings.McpCall
 import io.github.nuke.oss.app.shared.settings.McpConsole
 import io.github.nuke.oss.app.shared.settings.McpInputException
@@ -17,11 +18,17 @@ import io.github.nuke.oss.app.shared.settings.McpToken
 import io.github.nuke.oss.app.shared.settings.McpTokenDraft
 import io.github.nuke.oss.app.tiktok.feature.TikTokFeature
 import io.github.nuke.oss.app.tiktok.feature.TikTokFeatureServices
+import io.github.nuke.oss.app.tiktok.feature.chat.claims.LoadedSparkConversations
+import io.github.nuke.oss.app.tiktok.feature.chat.claims.PetHost
+import io.github.nuke.oss.app.tiktok.feature.chat.claims.SparkHost
+import io.github.nuke.oss.app.tiktok.feature.chat.claims.closenessTargets
 import io.github.nuke.oss.app.tiktok.mcp.DouyinMcpHost
 import io.github.nuke.oss.app.tiktok.mcp.McpConfig
 import io.github.nuke.oss.app.tiktok.mcp.McpHost
 import io.github.nuke.oss.app.tiktok.mcp.McpStoredToken
 import io.github.nuke.oss.app.tiktok.mcp.NativeMcp
+import io.github.nuke.oss.app.tiktok.mcp.closenessRewards
+import io.github.nuke.oss.app.tiktok.mcp.sparkRewards
 import io.github.nuke.oss.app.tiktok.protocol.PacketEndpoint
 import io.github.nuke.oss.app.tiktok.protocol.PacketExecutor
 import io.github.nuke.oss.app.tiktok.protocol.PacketRequest
@@ -29,7 +36,9 @@ import io.github.nuke.oss.app.tiktok.protocol.ProtocolQueries
 import io.github.nuke.oss.app.tiktok.query.ContactQueries
 import io.github.nuke.oss.app.tiktok.sdk.chat.HostContentSender
 import io.github.nuke.oss.app.tiktok.sdk.chat.HostImageContents
+import io.github.nuke.oss.app.tiktok.sdk.chat.ConversationModels
 import io.github.nuke.oss.app.tiktok.sdk.chat.ImAccount
+import io.github.nuke.oss.app.tiktok.sdk.chat.ReadMarker
 import io.github.nuke.oss.app.tiktok.sdk.contact.DouyinContacts
 import io.github.nuke.oss.core.Logger
 import io.github.nuke.oss.runtime.FeatureScope
@@ -40,12 +49,14 @@ import java.net.NetworkInterface
 import java.net.SocketException
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.runBlocking
 
 // An MCP server inside Douyin's main process, so that an AI client the user gave a token to can look up friends and
-// groups, send text and pictures and, with a permission of its own, raw IM requests as the signed-in account. The server itself is native (NativeMcp): it listens on
-// 127.0.0.1 unless the user opens it to the local networks, speaks Streamable HTTP on /mcp and decides by token who
-// may call which tool for which chat. This feature lends it worker threads while the switch is on, keeps its
+// groups, send text and pictures, claim the spark rewards and the pet closeness of its streaks, mark every chat read
+// and, with a permission of its own, send raw IM requests as the signed-in account. The server itself is native
+// (NativeMcp): it listens on 127.0.0.1 unless the user opens it to the local networks, speaks Streamable HTTP on /mcp
+// and decides by token who may call which tool for which chat. This feature lends it worker threads while the switch is on, keeps its
 // configuration, and is what the settings screen talks to. Nothing is hooked. Any app on the phone can reach a
 // loopback port, and any device on the network an open one, which is why every request needs a token, why a token
 // starts with no permission and no chat, and why nothing the server says before the token check names it. The
@@ -61,6 +72,8 @@ internal class McpServer(
     private val entropy: (Int) -> ByteArray = { size -> ByteArray(size).also(SecureRandom()::nextBytes) },
     private val clock: () -> Long = System::currentTimeMillis,
     private val addresses: () -> List<String> = ::localAddresses,
+    // Whether the feature is on, written under the lock. The host's claims read it too and stop once it is off.
+    private val active: AtomicBoolean = AtomicBoolean(),
 ) : RuntimeFeature, UsesDexQueries, McpConsole {
     override val id = ID
     override val dexQueries = HostContentSender.QUERIES + HostImageContents.QUERIES + PROTOCOL_QUERIES +
@@ -68,14 +81,14 @@ internal class McpServer(
 
     // Guards the listener and the stored configuration. The workers never take it, so stopping can wait for them.
     private val lock = Any()
-    private var active = false
     private var listener: Listener? = null
     private var failure: String? = null
 
     private class Listener(val server: Long, val port: Int, val workers: List<Thread>)
 
     // Every tool needs the contacts, and sending needs the sender. The streak count beside a friend is optional, and
-    // so are the uploader and the raw request path: without one only its own tool fails, with the reason.
+    // so are the uploader and the raw request path: without one only its own tool fails, with the reason. Without
+    // the streak count no friend is known to have a streak, so the claims find no chat to look at.
     override fun unusable(missing: List<DexQuery>) =
         missing.any { it !== ContactQueries.STREAK_DAYS && it !in HostImageContents.QUERIES && it !in PROTOCOL_QUERIES }
 
@@ -84,12 +97,12 @@ internal class McpServer(
     override fun install(scope: FeatureScope) {
         NativeMcp.ensureLoaded()
         synchronized(lock) {
-            active = true
+            active.set(true)
             listen(stored())
         }
         scope.own(AutoCloseable {
             synchronized(lock) {
-                active = false
+                active.set(false)
                 close()
             }
         })
@@ -145,7 +158,7 @@ internal class McpServer(
         val current = listener
         val listening = when {
             current != null -> McpListening.On(current.port)
-            active -> McpListening.Failed(failure.orEmpty())
+            active.get() -> McpListening.Failed(failure.orEmpty())
             else -> McpListening.Off
         }
         val native = current?.let { MiniJson.obj(NativeMcp.snapshot(it.server)?.let(MiniJson::parse)) }
@@ -185,7 +198,7 @@ internal class McpServer(
     // Moves a running listener to where the configuration now says, and back when it cannot be taken there.
     private fun move(before: McpConfig, after: McpConfig): McpState {
         // The same place is taken again only when nothing listens on it, which is how a failed start is retried.
-        if (!active || (before.port == after.port && before.lan == after.lan && listener != null)) {
+        if (!active.get() || (before.port == after.port && before.lan == after.lan && listener != null)) {
             store(after)
             return state(after)
         }
@@ -284,17 +297,25 @@ internal class McpServer(
         private const val STOP_WAIT_MILLIS = 1_500L
 
         override fun create(services: TikTokFeatureServices) = with(services) {
-            val account = ImAccount(hostClassLoader)::id
+            val im = ImAccount(hostClassLoader)
+            val account = im::id
+            val active = AtomicBoolean()
             val sender = HostContentSender(resolver, hostClassLoader)
             // Opened on the first tool call, so a host without the contact targets fails that call with the reason.
             val contacts by lazy { DouyinContacts.open(resolver, hostClassLoader, logger, ID) }
             // Built on the first raw request; the worker that asked waits for the host's answer.
             val executor by lazy { PacketExecutor(packetTransport()) }
+            // The claims of the message tab menu, with this feature's switch as theirs.
+            val models = ConversationModels(hostClassLoader)
+            val friends = HostContacts { contacts.load() }
             val host = DouyinMcpHost(
-                account, { contacts.load() }, sender, sender::text, HostImageContents(resolver, hostClassLoader), File(featureFiles, "$ID/$PICTURES"),
-                { cmd, inboxType, body -> runBlocking { executor.request(PacketRequest(PacketEndpoint(cmd, inboxType), body)) } }, logger, ID,
+                account, friends, sender, sender::text, HostImageContents(resolver, hostClassLoader), File(featureFiles, "$ID/$PICTURES"),
+                { cmd, inboxType, body -> runBlocking { executor.request(PacketRequest(PacketEndpoint(cmd, inboxType), body)) } },
+                sparkRewards(SparkHost(hostClassLoader, im, active::get), LoadedSparkConversations(friends, models, im, hostClassLoader)),
+                closenessRewards(PetHost(hostClassLoader, im, models, active::get, logger)) { owner -> closenessTargets(friends, owner) },
+                ReadMarker(hostClassLoader, models)::markAll, logger, ID, active::get,
             )
-            listOf(McpServer(host, account, memory, logger))
+            listOf(McpServer(host, account, memory, logger, active = active))
         }
     }
 }

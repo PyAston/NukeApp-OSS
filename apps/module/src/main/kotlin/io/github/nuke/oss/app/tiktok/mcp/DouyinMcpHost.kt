@@ -16,6 +16,7 @@ import java.io.File
 import java.io.IOException
 import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 // One raw IM request, a whole RequestBody, through the host's own IM SDK. Blocks until the host answers or gives up.
 internal fun interface RawRequests {
@@ -25,9 +26,12 @@ internal fun interface RawRequests {
 // Douyin as the MCP server sees it: the signed-in IM account, the friend and group lists, the host's own content
 // sender, the path its chat screen uses, and its uploader for pictures. A picture arrives as the bytes of a file the
 // server already checked; it is kept in the feature's private directory for the upload and for the host's own chat
-// row, which shows the local file, and removed a day later. A raw request goes to the host's IM SDK as it came and its Response comes back whole. Runs on the server's worker threads, never on the main thread. Every failure
-// is an answer with a code, so nothing is thrown into native code; the server decides who may ask for what, and this
-// side only does it. Logs name the operation and the outcome, never a recipient or a text.
+// row, which shows the local file, and removed a day later. A raw request goes to the host's IM SDK as it came and its
+// Response comes back whole. Rewards are claimed a chat at a time, in the chats the server named and no others, one run
+// at a time and for a bounded time: a run that stops early says how far it came, and the next one goes on from there.
+// Marking everything read is the IM SDK's own mark-all step. Runs on the server's worker threads, never on the main
+// thread. Every failure is an answer with a code, so nothing is thrown into native code; the server decides who may
+// ask for what, and this side only does it. Logs name the operation and the outcome, never a recipient or a text.
 internal class DouyinMcpHost(
     private val account: () -> Long,
     private val contacts: HostContacts,
@@ -36,14 +40,23 @@ internal class DouyinMcpHost(
     private val images: ImageContents,
     private val pictures: File,
     private val raw: RawRequests,
+    private val sparks: RewardSource,
+    private val closeness: RewardSource,
+    private val readAll: (account: Long) -> Unit,
     private val logger: Logger,
     private val owner: String,
+    // Whether the server still runs; a claim stops between two requests once it does not.
+    private val serving: () -> Boolean = { true },
     private val timeoutMillis: Long = SEND_TIMEOUT_MILLIS,
     private val uploadTimeoutMillis: Long = UPLOAD_TIMEOUT_MILLIS,
+    private val claimMillis: Long = CLAIM_MILLIS,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : McpHost {
     // One send at a time: the workers answer different clients, and the host hears them in the order they arrived.
     private val sending = Any()
+
+    // One claim at a time, of either kind: a second one is refused instead of holding its worker for minutes.
+    private val claiming = AtomicBoolean()
 
     override fun request(operation: String, arguments: String, payload: ByteArray?): String = MiniJson.write(
         try {
@@ -53,6 +66,8 @@ internal class DouyinMcpHost(
                 "sendText" -> sendText(arguments)
                 "sendImage" -> sendImage(arguments, payload)
                 "sendProtocol" -> sendProtocol(arguments, payload)
+                "claim" -> claim(arguments)
+                "markAllRead" -> markAllRead()
                 else -> failure("UNKNOWN_OPERATION", operation)
             }
         } catch (error: DexQueryUnavailable) {
@@ -66,6 +81,9 @@ internal class DouyinMcpHost(
             failed(operation, "UPLOAD_FAILED", error.message)
         } catch (error: IOException) {
             failed(operation, "HOST_FAILED", "The picture could not be stored")
+        } catch (error: ReflectiveOperationException) {
+            // A host member the claims or the read marker look up by name is not there, or not as it was.
+            failed(operation, "NOT_ADAPTED", "Not adapted to this Douyin build: ${error.javaClass.simpleName}")
         } catch (error: RuntimeException) {
             failed(operation, "HOST_FAILED", error.javaClass.simpleName)
         },
@@ -141,6 +159,61 @@ internal class DouyinMcpHost(
         }
     }
 
+    // The chats that may hold the reward are put in one order, so that skip means the same chats in every run. A run
+    // ends at the last of them, when its time is up, when the server stops or the account changes, or when a claim
+    // says nothing more may be asked; reached is how far it came.
+    private fun claim(arguments: String): Map<String, Any?> {
+        val request = MiniJson.obj(MiniJson.parse(arguments)) ?: return failure("HOST_FAILED", "Unreadable arguments")
+        val source = when (request["reward"]) {
+            "sparks" -> sparks
+            "closeness" -> closeness
+            else -> return failure("HOST_FAILED", "Unknown reward")
+        }
+        val conversations = (request["conversations"] as? List<*>)?.filterIsInstance<String>()?.toSet() ?: return failure("HOST_FAILED", "No chats")
+        val skip = (request["skip"] as? Long)?.takeIf { it in 0..Int.MAX_VALUE }?.toInt() ?: return failure("HOST_FAILED", "No start")
+        if (!claiming.compareAndSet(false, true)) return failure("BUSY", "Another claim is still running; wait for it to end")
+        try {
+            val signedIn = account()
+            val targets = source.targets(signedIn, conversations).sortedBy { it.conversation }
+            val deadline = clock() + claimMillis
+            val totals = IntArray(6)
+            val details = ArrayList<String>()
+            var reached = minOf(skip, targets.size)
+            while (reached < targets.size) {
+                val stop = when {
+                    !serving() -> "The server stopped; the claim ended early"
+                    (try { account() } catch (_: IllegalStateException) { 0L }) != signedIn -> "The account changed; the claim ended early"
+                    else -> null
+                }
+                if (stop != null) {
+                    details.add(0, stop)
+                    break
+                }
+                if (clock() >= deadline) break
+                val counts = targets[reached++].claim(serving)
+                listOf(counts.scanned, counts.claimed, counts.already, counts.failed, counts.unknown, counts.unavailable)
+                    .forEachIndexed { index, count -> totals[index] += count }
+                details += counts.details
+                if (counts.halt) break
+            }
+            logger.log("feature=$owner claim reward=${request["reward"]} targets=${targets.size} reached=$reached scanned=${totals[0]} " +
+                "claimed=${totals[1]} already=${totals[2]} failed=${totals[3]} unknown=${totals[4]} unavailable=${totals[5]}")
+            return mapOf(
+                "ok" to true, "targets" to targets.size, "reached" to reached, "scanned" to totals[0], "claimed" to totals[1],
+                "already" to totals[2], "failed" to totals[3], "unknown" to totals[4], "unavailable" to totals[5],
+                "details" to details.take(MAX_DETAILS),
+            )
+        } finally {
+            claiming.set(false)
+        }
+    }
+
+    private fun markAllRead(): Map<String, Any?> {
+        readAll(account())
+        logger.log("feature=$owner read_all_submitted")
+        return mapOf("ok" to true)
+    }
+
     private fun store(bytes: ByteArray, extension: String): File {
         if (!pictures.isDirectory && !pictures.mkdirs()) throw IOException("The picture directory could not be made")
         val expired = clock() - KEEP_MILLIS
@@ -159,6 +232,9 @@ internal class DouyinMcpHost(
         const val SEND_TIMEOUT_MILLIS = 10_000L
         const val UPLOAD_TIMEOUT_MILLIS = 45_000L
         const val KEEP_MILLIS = 24 * 60 * 60 * 1000L
+        // Short enough for a client that waits a minute for a tool; a longer run goes on in the next call.
+        const val CLAIM_MILLIS = 40_000L
+        const val MAX_DETAILS = 3
         val EXTENSIONS = setOf("jpg", "png")
     }
 }

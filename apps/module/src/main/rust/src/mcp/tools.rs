@@ -14,6 +14,7 @@ const MAX_LISTED: u64 = 200;
 const DEFAULT_LISTED: u64 = 50;
 const MAX_OFFSET: u64 = 100_000;
 const MAX_HOST_MESSAGE_CHARS: usize = 300;
+const MAX_CLAIM_DETAILS: usize = 3;
 const MAX_BODY_CHARS: usize = MAX_BODY_BYTES.div_ceil(3) * 4;
 const MAX_TAG: u64 = 0x1fff_ffff;
 /// The largest response to a raw request that is handed back to the client.
@@ -53,6 +54,19 @@ pub trait Host {
         inbox_type: i32,
         body: &[u8],
     ) -> Result<Vec<u8>, HostError>;
+
+    /// Claims the rewards of one kind that the account has earned in the private chats among `conversations`, a chat
+    /// at a time and in an order that stays the same between calls, leaving out the first `skip` of the chats that
+    /// may hold one. It may stop before the last chat, and never submits a reward twice.
+    fn claim(
+        &mut self,
+        reward: Reward,
+        conversations: &[String],
+        skip: usize,
+    ) -> Result<Claimed, HostError>;
+
+    /// Asks the app to mark every chat of the account read. The app only submits this; nothing confirms it.
+    fn mark_all_read(&mut self) -> Result<(), HostError>;
 }
 
 /// Why the app could not do what was asked. The code is stable and reaches the client; the message is for people.
@@ -102,21 +116,60 @@ pub struct Sent {
     pub message_id: Option<String>,
 }
 
+/// A reward a streak with a friend earns, which the account has to collect itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reward {
+    Sparks,
+    Closeness,
+}
+
+impl Reward {
+    pub fn name(self) -> &'static str {
+        match self {
+            Reward::Sparks => "sparks",
+            Reward::Closeness => "closeness",
+        }
+    }
+}
+
+/// What one run of claims came to. `targets` is how many chats may hold a reward and `reached` how many of them,
+/// counted from the first and with the skipped ones, the run got through. `scanned` chats were read; a reward was
+/// `claimed`, `already` claimed or `failed`, or its submission went out without an answer (`unknown`); `unavailable`
+/// counts the reads that failed. `details` are the first reasons, for people.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Claimed {
+    pub targets: u64,
+    pub reached: u64,
+    pub scanned: u64,
+    pub claimed: u64,
+    pub already: u64,
+    pub failed: u64,
+    pub unknown: u64,
+    pub unavailable: u64,
+    pub details: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Tool {
     FindContact,
     ListContacts,
     SendText,
     SendImage,
+    ClaimSparks,
+    ClaimCloseness,
+    MarkAllRead,
     SendProtocol,
 }
 
 impl Tool {
-    const ALL: [Tool; 5] = [
+    const ALL: [Tool; 8] = [
         Tool::FindContact,
         Tool::ListContacts,
         Tool::SendText,
         Tool::SendImage,
+        Tool::ClaimSparks,
+        Tool::ClaimCloseness,
+        Tool::MarkAllRead,
         Tool::SendProtocol,
     ];
 
@@ -126,6 +179,9 @@ impl Tool {
             Tool::ListContacts => "douyin_list_contacts",
             Tool::SendText => "douyin_send_text",
             Tool::SendImage => "douyin_send_image",
+            Tool::ClaimSparks => "douyin_claim_sparks",
+            Tool::ClaimCloseness => "douyin_claim_closeness",
+            Tool::MarkAllRead => "douyin_mark_all_read",
             Tool::SendProtocol => "douyin_send_protocol",
         }
     }
@@ -135,6 +191,8 @@ impl Tool {
             Tool::FindContact | Tool::ListContacts => Permission::ReadContacts,
             Tool::SendText => Permission::SendText,
             Tool::SendImage => Permission::SendImage,
+            Tool::ClaimSparks | Tool::ClaimCloseness => Permission::ClaimRewards,
+            Tool::MarkAllRead => Permission::MarkRead,
             Tool::SendProtocol => Permission::SendProtocol,
         }
     }
@@ -188,6 +246,33 @@ impl Tool {
                         "description": "Send the file as it is instead of letting Douyin compress it." },
                 }),
                 json!(["conversationId", "image"]),
+                false,
+            ),
+            Tool::ClaimSparks => (
+                "Claim the spark rewards the signed-in Douyin account has earned from its streaks, for one friend or \
+                 for every friend this token reaches. Only friends with a running streak whose chat Douyin has loaded \
+                 are looked at. The result counts the chats read and the rewards claimed; unknown counts submissions \
+                 that went out without an answer and are never repeated. A run stops after a while: when the result \
+                 has next, call again with skip set to it to go on.",
+                claim_properties(),
+                json!([]),
+                false,
+            ),
+            Tool::ClaimCloseness => (
+                "Claim the pet closeness the signed-in Douyin account has earned with its friends, for one friend or \
+                 for every friend this token reaches. Only friends with a running streak are looked at. The result \
+                 reads as for douyin_claim_sparks, and a run also stops at a submission whose outcome is unknown: \
+                 tell the user instead of going on.",
+                claim_properties(),
+                json!([]),
+                false,
+            ),
+            Tool::MarkAllRead => (
+                "Mark every chat of the signed-in Douyin account read, the stranger inbox included, as Douyin's own \
+                 mark-all step does. There is no single-chat form and no undo. status is submitted: Douyin does not \
+                 report whether its server took it, and the module's read-status blocking still applies.",
+                json!({}),
+                json!([]),
                 false,
             ),
             Tool::SendProtocol => (
@@ -348,6 +433,9 @@ pub(super) fn call(
         Tool::ListContacts => run.list_contacts(arguments),
         Tool::SendText => run.send_text(arguments),
         Tool::SendImage => run.send_image(arguments),
+        Tool::ClaimSparks => run.claim(arguments, Reward::Sparks),
+        Tool::ClaimCloseness => run.claim(arguments, Reward::Closeness),
+        Tool::MarkAllRead => run.mark_all_read(arguments),
         Tool::SendProtocol => run.send_protocol(arguments),
     }
     .unwrap_or_else(|reply| reply);
@@ -534,14 +622,10 @@ impl Run<'_> {
         self.target = Some(format!("cmd {cmd}"));
         // The body is not read, so no chat can be told from it: only a token that reaches every chat may send one.
         let unbounded = |token: &Token| {
-            if token.reaches_all() {
-                Ok(())
-            } else {
-                Err(Reply::failed(
-                    "ALL_CHATS_REQUIRED",
-                    "A raw request can address any chat, so only a token that reaches all chats may send one",
-                ))
-            }
+            every_chat(
+                token,
+                "A raw request can address any chat, so only a token that reaches all chats may send one",
+            )
         };
         unbounded(self.token)?;
         self.signed_in()?;
@@ -585,6 +669,101 @@ impl Run<'_> {
         }
         Ok(Reply::Result {
             body: answer,
+            failed: false,
+        })
+    }
+
+    fn claim(&mut self, arguments: &Map<String, Value>, reward: Reward) -> Step {
+        if !only(arguments, &["conversationId", "skip"]) {
+            return Err(Reply::invalid("Unknown argument"));
+        }
+        let one = match arguments.get("conversationId") {
+            None => None,
+            Some(_) => Some(conversation(arguments)?),
+        };
+        let skip = integer(arguments, "skip", 0, 0, MAX_OFFSET)
+            .ok_or(Reply::invalid("skip must be an integer from 0 to 100000"))?;
+        self.target = one.map(str::to_owned);
+        self.signed_in()?;
+        let not_allowed = || {
+            Reply::failed(
+                "CONVERSATION_NOT_ALLOWED",
+                "This token does not reach that chat",
+            )
+        };
+        if one.is_some_and(|one| !self.token.reaches(one)) {
+            return Err(not_allowed());
+        }
+        let contacts = self.contacts()?;
+        let token = (self.current)().ok_or(REVOKED)?;
+        if !token.allows(Permission::ClaimRewards) {
+            return Err(DENIED);
+        }
+        if one.is_some_and(|one| !token.reaches(one)) {
+            return Err(not_allowed());
+        }
+        // Only the private chats the account really has and the token reaches are handed to the app, which claims
+        // nowhere else.
+        let chats: Vec<String> = contacts
+            .into_iter()
+            .filter(|contact| contact.kind == ContactKind::Friend)
+            .map(|contact| contact.conversation)
+            .filter(|chat| token.reaches(chat) && one.is_none_or(|one| one == chat))
+            .collect();
+        if one.is_some() && chats.is_empty() {
+            return Err(Reply::failed(
+                "CONTACT_NOT_FOUND",
+                "No friend has that conversationId",
+            ));
+        }
+        let claimed = self
+            .host
+            .claim(reward, &chats, skip)
+            .map_err(|error| Reply::failed(&error.code, &error.message))?;
+        let details: Vec<String> = claimed
+            .details
+            .iter()
+            .take(MAX_CLAIM_DETAILS)
+            .map(|detail| detail.chars().take(MAX_HOST_MESSAGE_CHARS).collect())
+            .collect();
+        let mut body = json!({
+            "targets": claimed.targets, "scanned": claimed.scanned, "claimed": claimed.claimed,
+            "already": claimed.already, "failed": claimed.failed, "unknown": claimed.unknown,
+            "unavailable": claimed.unavailable, "details": details,
+        });
+        // Where a run that stopped early goes on.
+        if claimed.reached < claimed.targets {
+            body["next"] = claimed.reached.into();
+        }
+        Ok(Reply::Result {
+            body,
+            failed: false,
+        })
+    }
+
+    fn mark_all_read(&mut self, arguments: &Map<String, Value>) -> Step {
+        if !arguments.is_empty() {
+            return Err(Reply::invalid("Unknown argument"));
+        }
+        // Every chat is marked, so the chats a token names cannot bound it.
+        let unbounded = |token: &Token| {
+            every_chat(
+                token,
+                "Every chat is marked read, so only a token that reaches all chats may do it",
+            )
+        };
+        unbounded(self.token)?;
+        self.signed_in()?;
+        let token = (self.current)().ok_or(REVOKED)?;
+        if !token.allows(Permission::MarkRead) {
+            return Err(DENIED);
+        }
+        unbounded(&token)?;
+        self.host
+            .mark_all_read()
+            .map_err(|error| Reply::failed(&error.code, &error.message))?;
+        Ok(Reply::Result {
+            body: json!({ "status": "submitted" }),
             failed: false,
         })
     }
@@ -690,6 +869,24 @@ fn conversation(arguments: &Map<String, Value>) -> Step<&str> {
             !id.is_empty() && id.trim() == *id && id.chars().count() <= MAX_CONVERSATION_CHARS
         })
         .ok_or(Reply::invalid("conversationId must be a conversation ID"))
+}
+
+// What a tool that is not bound to one chat asks of a token.
+fn every_chat(token: &Token, message: &str) -> Step<()> {
+    if token.reaches_all() {
+        Ok(())
+    } else {
+        Err(Reply::failed("ALL_CHATS_REQUIRED", message))
+    }
+}
+
+fn claim_properties() -> Value {
+    json!({
+        "conversationId": { "type": "string", "minLength": 1, "maxLength": MAX_CONVERSATION_CHARS,
+            "description": "The conversationId of one friend returned by douyin_find_contact or douyin_list_contacts. Without it, every friend this token reaches." },
+        "skip": { "type": "integer", "minimum": 0, "maximum": MAX_OFFSET, "default": 0,
+            "description": "The next of the run this one goes on from." },
+    })
 }
 
 fn describe(contact: &Contact) -> Value {

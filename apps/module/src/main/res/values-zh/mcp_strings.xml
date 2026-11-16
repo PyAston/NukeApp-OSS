@@ -41,9 +41,14 @@
     <string name="host_mcp_permission_send_text_description">向这个令牌可访问的会话发送文本。</string>
     <string name="host_mcp_permission_send_image">发送图片</string>
     <string name="host_mcp_permission_send_image_description">向这个令牌可访问的会话发送 JPEG 和 PNG 图片。</string>
+    <string name="host_mcp_permission_claim_rewards">领取火星和亲密度</string>
+    <string name="host_mcp_permission_claim_rewards_description">为这个令牌可访问的好友领取已获得的火星和宠物亲密度。</string>
+    <string name="host_mcp_permission_mark_read">全部已读</string>
+    <string name="host_mcp_permission_mark_read_description">像消息页菜单那样一次把所有会话标为已读，不受所选会话限制。</string>
     <string name="host_mcp_permission_send_protocol">发送自定义协议请求</string>
     <string name="host_mcp_permission_send_protocol_description">以当前账号发送任意 IM 请求并读取响应，内容不做检查，也不受所选会话限制。</string>
     <string name="host_mcp_protocol_needs_all">自定义协议请求可以指向任何会话，所以只有开启「全部好友和群聊」的令牌才能使用。</string>
+    <string name="host_mcp_read_needs_all">全部已读会标记所有会话，所以只有开启「全部好友和群聊」的令牌才能使用。</string>
     <string name="host_mcp_chats">会话</string>
     <string name="host_mcp_allow_all">全部好友和群聊</string>
     <string name="host_mcp_allow_all_description">关闭时只能访问下面选中的会话。</string>

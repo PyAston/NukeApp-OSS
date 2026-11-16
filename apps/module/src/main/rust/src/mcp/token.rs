@@ -24,6 +24,8 @@ pub enum Permission {
     ReadContacts,
     SendText,
     SendImage,
+    ClaimRewards,
+    MarkRead,
     SendProtocol,
 }
 
@@ -33,6 +35,8 @@ impl Permission {
             Permission::ReadContacts => "READ_CONTACTS",
             Permission::SendText => "SEND_TEXT",
             Permission::SendImage => "SEND_IMAGE",
+            Permission::ClaimRewards => "CLAIM_REWARDS",
+            Permission::MarkRead => "MARK_READ",
             Permission::SendProtocol => "SEND_PROTOCOL",
         }
     }
@@ -42,6 +46,8 @@ impl Permission {
             "READ_CONTACTS" => Some(Permission::ReadContacts),
             "SEND_TEXT" => Some(Permission::SendText),
             "SEND_IMAGE" => Some(Permission::SendImage),
+            "CLAIM_REWARDS" => Some(Permission::ClaimRewards),
+            "MARK_READ" => Some(Permission::MarkRead),
             "SEND_PROTOCOL" => Some(Permission::SendProtocol),
             _ => None,
         }

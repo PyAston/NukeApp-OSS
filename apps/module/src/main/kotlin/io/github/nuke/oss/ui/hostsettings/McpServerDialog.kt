@@ -319,6 +319,8 @@ private fun permissionLabel(permission: McpPermission): Pair<Int, Int> = when (p
     McpPermission.READ_CONTACTS -> R.string.host_mcp_permission_read_contacts to R.string.host_mcp_permission_read_contacts_description
     McpPermission.SEND_TEXT -> R.string.host_mcp_permission_send_text to R.string.host_mcp_permission_send_text_description
     McpPermission.SEND_IMAGE -> R.string.host_mcp_permission_send_image to R.string.host_mcp_permission_send_image_description
+    McpPermission.CLAIM_REWARDS -> R.string.host_mcp_permission_claim_rewards to R.string.host_mcp_permission_claim_rewards_description
+    McpPermission.MARK_READ -> R.string.host_mcp_permission_mark_read to R.string.host_mcp_permission_mark_read_description
     McpPermission.SEND_PROTOCOL -> R.string.host_mcp_permission_send_protocol to R.string.host_mcp_permission_send_protocol_description
 }
 
@@ -399,6 +401,9 @@ private fun TokenDialog(
             if (edit.problem == null && edit.idle) OptionsBodyText(stringResource(R.string.host_mcp_token_idle))
             if (McpPermission.SEND_PROTOCOL in draft.permissions && !draft.allowAll) {
                 OptionsBodyText(stringResource(R.string.host_mcp_protocol_needs_all), warning = true)
+            }
+            if (McpPermission.MARK_READ in draft.permissions && !draft.allowAll) {
+                OptionsBodyText(stringResource(R.string.host_mcp_read_needs_all), warning = true)
             }
             notice?.let { OptionsBodyText(it, warning = true) }
         }

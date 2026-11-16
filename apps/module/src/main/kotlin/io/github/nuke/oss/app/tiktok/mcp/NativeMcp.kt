@@ -43,9 +43,9 @@ internal object NativeMcp {
     external fun entropyBytes(): Int
 }
 
-// What the native server asks of the app: an operation (account, contacts, sendText, sendImage or sendProtocol) with
-// JSON arguments and, for a picture or a raw request, the bytes of the file or the body, answered with JSON that is either ok with the result or not ok with a
-// code and a message. Called from native code by name on the server's worker threads, so the signature is kept in
+// What the native server asks of the app: an operation (account, contacts, sendText, sendImage, sendProtocol, claim or
+// markAllRead) with JSON arguments and, for a picture or a raw request, the bytes of the file or the body, answered
+// with JSON that is either ok with the result or not ok with a code and a message. Called from native code by name on the server's worker threads, so the signature is kept in
 // step with bridge.rs and the R8 rules.
 internal fun interface McpHost {
     fun request(operation: String, arguments: String, payload: ByteArray?): String

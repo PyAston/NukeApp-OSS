@@ -2,8 +2,9 @@ package io.github.nuke.oss.app.shared.settings
 
 // What an access token may do. The names are the ones the stored configuration and the native server use.
 // SEND_PROTOCOL sends raw IM requests whose bodies nobody reads, so the chats a token names cannot bound it: the
-// server lets only a token that reaches all chats use it.
-internal enum class McpPermission { READ_CONTACTS, SEND_TEXT, SEND_IMAGE, SEND_PROTOCOL }
+// server lets only a token that reaches all chats use it. MARK_READ marks every chat read at once, so it is bounded
+// the same way. CLAIM_REWARDS claims spark rewards and pet closeness in the private chats a token reaches.
+internal enum class McpPermission { READ_CONTACTS, SEND_TEXT, SEND_IMAGE, CLAIM_REWARDS, MARK_READ, SEND_PROTOCOL }
 
 // One access token as the settings screen sees it. The secret is never part of it: the host keeps only its hash, and
 // the text of a token is shown once, when it is made or given a new secret. A token belongs to the account that was

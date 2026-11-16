@@ -41,9 +41,14 @@
     <string name="host_mcp_permission_send_text_description">Send text to the chats this token reaches.</string>
     <string name="host_mcp_permission_send_image">Send pictures</string>
     <string name="host_mcp_permission_send_image_description">Send JPEG and PNG pictures to the chats this token reaches.</string>
+    <string name="host_mcp_permission_claim_rewards">Claim sparks and closeness</string>
+    <string name="host_mcp_permission_claim_rewards_description">Claim earned spark rewards and pet closeness with the friends this token reaches.</string>
+    <string name="host_mcp_permission_mark_read">Mark all chats read</string>
+    <string name="host_mcp_permission_mark_read_description">Mark every chat read at once, as the message tab menu does. Not bounded by the chosen chats.</string>
     <string name="host_mcp_permission_send_protocol">Send raw protocol requests</string>
     <string name="host_mcp_permission_send_protocol_description">Send any IM request as this account, unchecked, and read its response. Not bounded by the chosen chats.</string>
     <string name="host_mcp_protocol_needs_all">Raw protocol requests work only with “All friends and groups” on, because a request can address any chat.</string>
+    <string name="host_mcp_read_needs_all">Marking all chats read works only with “All friends and groups” on, because it marks every chat.</string>
     <string name="host_mcp_chats">Chats</string>
     <string name="host_mcp_allow_all">All friends and groups</string>
     <string name="host_mcp_allow_all_description">When off, only the chats chosen below.</string>

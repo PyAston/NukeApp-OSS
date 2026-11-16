@@ -16,6 +16,9 @@ const SERVER_NAME: &str = "nuke-douyin";
 const INSTRUCTIONS: &str = "Tools act as the Douyin account signed in on the user's phone. Find the recipient with \
     douyin_find_contact before douyin_send_text or douyin_send_image, and confirm with the user when several contacts \
     match. A send whose status is unknown may have been delivered: do not repeat it without asking the user. \
+    douyin_claim_sparks and douyin_claim_closeness collect rewards the account already earned and never repeat a \
+    submission; call one again only with the next it returned. douyin_mark_all_read clears every unread chat at once: \
+    use it only when the user asked for exactly that. \
     douyin_send_protocol sends a raw IM request unchecked: use it only for a request the user spelled out.";
 
 pub(super) fn supports(version: &str) -> bool {

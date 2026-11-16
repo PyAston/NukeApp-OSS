@@ -1,7 +1,7 @@
 use super::base64;
 use super::{
-    issue, Config, Contact, ContactKind, Host, HostError, Image, Reach, SendStatus, Sent, Server,
-    ENTROPY_BYTES,
+    issue, Claimed, Config, Contact, ContactKind, Host, HostError, Image, Reach, Reward,
+    SendStatus, Sent, Server, ENTROPY_BYTES,
 };
 use jni::objects::{JByteArray, JObject, JString};
 use jni::sys::{jboolean, jint, jlong, jstring};
@@ -337,6 +337,47 @@ impl Host for JniHost<'_, '_, '_> {
             .and_then(Value::as_str)
             .and_then(base64::decode)
             .ok_or_else(|| unreadable("response"))
+    }
+
+    fn claim(
+        &mut self,
+        reward: Reward,
+        conversations: &[String],
+        skip: usize,
+    ) -> Result<Claimed, HostError> {
+        let answer = self.request(
+            "claim",
+            json!({ "reward": reward.name(), "conversations": conversations, "skip": skip }),
+            None,
+        )?;
+        let count = |key: &str| {
+            answer
+                .get(key)
+                .and_then(Value::as_u64)
+                .ok_or_else(|| unreadable("claim result"))
+        };
+        Ok(Claimed {
+            targets: count("targets")?,
+            reached: count("reached")?,
+            scanned: count("scanned")?,
+            claimed: count("claimed")?,
+            already: count("already")?,
+            failed: count("failed")?,
+            unknown: count("unknown")?,
+            unavailable: count("unavailable")?,
+            details: answer
+                .get("details")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+        })
+    }
+
+    fn mark_all_read(&mut self) -> Result<(), HostError> {
+        self.request("markAllRead", json!({}), None).map(|_| ())
     }
 }
 
