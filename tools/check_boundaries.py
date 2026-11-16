@@ -53,6 +53,7 @@ def translations(app):
     # and the per-app language list must name exactly those languages.
     errors = []
     res = app / "src/main/res"
+    name = app.name
 
     def strings(folder, translatable_only):
         found = set()
@@ -68,14 +69,14 @@ def translations(app):
     for language in languages:
         translated = strings(res / f"values-{language}", False)
         if translated != default:
-            errors.append(f"values-{language} strings differ from values/: missing {sorted(default - translated)}, "
+            errors.append(f"{name}: values-{language} strings differ from values/: missing {sorted(default - translated)}, "
                           f"extra {sorted(translated - default)}")
     android = "{http://schemas.android.com/apk/res/android}name"
     config = res / "xml/locales_config.xml"
     listed = [item.get(android) for item in ET.parse(config).getroot().iter("locale")] if config.is_file() else []
     expected = ["en", *(language.replace("-r", "-") for language in languages)]
     if sorted(listed) != sorted(expected):
-        errors.append(f"locales_config.xml lists {listed}, expected {expected}")
+        errors.append(f"{name}: locales_config.xml lists {listed}, expected {expected}")
     return errors
 
 
@@ -358,6 +359,7 @@ def check(root):
         if not entry.is_file():
             errors.append(f"Missing universal APK entry: {entry.relative_to(root)}")
     errors.extend(translations(app))
+    errors.extend(translations(patcher))
     errors.extend(licensing(root, app, patcher))
     return errors
 
