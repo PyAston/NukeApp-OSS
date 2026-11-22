@@ -81,7 +81,7 @@ impl Inputs {
             ),
             (
                 "assets/lspatch/config.json".into(),
-                br#"{"useManager":false,"sigBypassLevel":0,"injectDex":false}"#.to_vec(),
+                br#"{"useManager":false,"sigBypassLevel":2,"injectDex":false}"#.to_vec(),
             ),
         ];
         for abi in ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"] {

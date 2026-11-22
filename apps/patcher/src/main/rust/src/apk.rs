@@ -531,14 +531,14 @@ pub fn verify_patched(original: &Path, module: &Path, patched: &Path) -> Result<
         || config
             .get("sigBypassLevel")
             .and_then(serde_json::Value::as_u64)
-            != Some(0)
+            != Some(2)
         || config
             .get("injectDex")
             .is_some_and(|value| value.as_bool() != Some(false))
     {
         return Err(PatchError::new(
             "invalid_config",
-            "Expected embedded module mode and disabled signature bypass",
+            "Expected embedded module mode and full signature bypass",
         ));
     }
     Ok(patched.report)
