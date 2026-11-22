@@ -280,11 +280,12 @@ fn embedded_module_cannot_differ_from_current_module() {
 #[test]
 fn manager_mode_signature_bypass_and_dex_injection_are_rejected() {
     for json in [
-        r#"{"useManager":true,"sigBypassLevel":0}"#,
+        r#"{"useManager":true,"sigBypassLevel":2}"#,
+        r#"{"useManager":false,"sigBypassLevel":0}"#,
         r#"{"useManager":false,"sigBypassLevel":1}"#,
-        r#"{"useManager":false,"sigBypassLevel":0,"injectDex":true}"#,
+        r#"{"useManager":false,"sigBypassLevel":2,"injectDex":true}"#,
         r#"{"useManager":false}"#,
-        r#"{"useManager":false,"sigBypassLevel":"0"}"#,
+        r#"{"useManager":false,"sigBypassLevel":"2"}"#,
         "not json",
     ] {
         let mut inputs = Inputs::new();
