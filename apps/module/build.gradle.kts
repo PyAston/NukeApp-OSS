@@ -175,8 +175,6 @@ dependencies {
     testImplementation(testFixtures(project(":core:runtime")))
 }
 
-android.sourceSets.getByName("test").java.srcDir(rootProject.file("fixtures/host/src/main/java"))
-
 // The JVM tests run real QuickJS: the Android variant's libraries cannot load on the desktop, so unit tests get the
 // JVM variant of the same release, which carries desktop binaries.
 configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configureEach {
