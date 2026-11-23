@@ -1,6 +1,7 @@
 package io.github.nuke.oss.app.shared.activity
 
 import android.app.Instrumentation
+import android.util.Log
 import android.content.Intent
 import io.github.nuke.oss.app.shared.settings.HostSettingsHandoff
 import com.highcapable.kavaref.KavaRef.Companion.resolve
@@ -23,11 +24,19 @@ internal class ModuleActivityHook(
 ) {
     private val lock = Any()
     private val covered = HashSet<Method>()
+    private val tag = "NukeApp-OSS/Handoff"
     private var scope: FeatureScope? = null
 
     fun install(scope: FeatureScope) {
         synchronized(lock) { this.scope = scope }
         hook(newActivity)
+        // Some Android/OEM implementations use the extended newActivity overload.
+        for (method in Instrumentation::class.java.declaredMethods) {
+            if (method.name == "newActivity" &&
+                method.parameterTypes.any { it == Intent::class.java } &&
+                method != newActivity) hook(method)
+        }
+        Log.i(tag, "handoff_hooks_installed count=${covered.size}")
     }
 
     // A host may replace the process's Instrumentation with subclasses that build Activities themselves and never
@@ -35,39 +44,48 @@ internal class ModuleActivityHook(
     // chain gets the same hook. The outermost one runs first and answers before any host wrapper.
     fun cover(instrumentation: Any) {
         var type: Class<*>? = instrumentation.javaClass
-        while (type != null && type != newActivity.declaringClass) {
-            type.resolve().optional(silent = true).firstMethodOrNull {
-                name = newActivity.name
-                parameters(*newActivity.parameterTypes)
-            }?.let { hook(it.self) }
+        while (type != null && type != Instrumentation::class.java) {
+            for (method in type.declaredMethods) {
+                if (method.name == "newActivity" &&
+                    method.parameterTypes.any { it == Intent::class.java } &&
+                    android.app.Activity::class.java.isAssignableFrom(method.returnType)) hook(method)
+            }
             type = type.superclass
         }
+        Log.i(tag, "handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size}")
     }
 
     private fun hook(target: Method) {
         synchronized(lock) {
             if (target in covered) return
             val scope = checkNotNull(scope) { "ModuleActivityHook is not installed" }
+            val intentIndex = target.parameterTypes.indexOfFirst { it == Intent::class.java }
+                .takeIf { it >= 0 } ?: INTENT_INDEX
             scope.hooks.install(target, HookSpec(
-                id = "ModuleActivity:${target.declaringClass.name}.${target.name}",
+                id = "ModuleActivity:${target.declaringClass.name}.${target.name}/${target.parameterCount}",
                 before = { call ->
-                    val launchIntent = call.argument(INTENT_INDEX)
+                    val launchIntent = call.argument(intentIndex)
                     val isModuleLaunch = HostSettingsHandoff.hasToken(launchIntent as? Intent)
-                    if (isModuleLaunch) logger.log("feature=$featureId handoff_intercept method=${target.declaringClass.name}.${target.name} stub=${call.argument(1)}")
+                    if (isModuleLaunch) Log.i(tag, "handoff_intercept target=${target.declaringClass.name}.${target.name}/${target.parameterCount} intentIndex=$intentIndex")
                     val activity = try {
                         create(launchIntent)
                     } catch (error: ReflectiveOperationException) {
                         logger.log("feature=$featureId module_activity_failed $error")
+                        if (isModuleLaunch) Log.e(tag, "handoff_create_reflection_failed", error)
                         null
                     } catch (error: LinkageError) {
                         logger.log("feature=$featureId module_activity_failed $error")
+                        if (isModuleLaunch) Log.e(tag, "handoff_create_linkage_failed", error)
+                        null
+                    } catch (error: RuntimeException) {
+                        if (isModuleLaunch) Log.e(tag, "handoff_create_runtime_failed", error)
                         null
                     }
                     if (activity != null) {
-                        if (isModuleLaunch) logger.log("feature=$featureId handoff_created activity=${activity.javaClass.name}")
+                        if (isModuleLaunch) Log.i(tag, "handoff_created activity=${activity.javaClass.name}")
                         call.returnEarly(activity)
                     } else if (isModuleLaunch) {
-                        logger.log("feature=$featureId handoff_not_claimed method=${target.declaringClass.name}.${target.name}")
+                        Log.e(tag, "handoff_not_claimed target=${target.declaringClass.name}/${target.parameterCount}")
                     }
                 },
             ))
