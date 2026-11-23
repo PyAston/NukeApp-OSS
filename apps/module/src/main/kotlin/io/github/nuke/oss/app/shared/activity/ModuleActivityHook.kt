@@ -33,30 +33,20 @@ internal class ModuleActivityHook(
 
     fun install(scope: FeatureScope) {
         synchronized(lock) { this.scope = scope }
+        // Android 11 / LSPosed: hooking the second Instrumentation.newActivity
+        // overload caused process instability. Restrict to the original,
+        // previously working three-argument method.
         hook(newActivity)
-        // Some Android/OEM implementations use the extended newActivity overload.
-        if (newActivity.declaringClass == Instrumentation::class.java) {
-            for (method in Instrumentation::class.java.declaredMethods) {
-                if (method.name == "newActivity" &&
-                    method.parameterTypes.any { it == Intent::class.java } &&
-                    method != newActivity) hook(method)
-            }
-        }
-        trace("handoff_hooks_installed count=${covered.size}")
+        trace("handoff_hooks_installed count=${covered.size} mode=safe")
     }
 
-    // A host may replace the process's Instrumentation with subclasses that build Activities themselves and never
-    // reach the base method (Douyin's Mira plugin framework does), so every override on the live instance's class
-    // chain gets the same hook. The outermost one runs first and answers before any host wrapper.
     fun cover(instrumentation: Any) {
         var type: Class<*>? = instrumentation.javaClass
-        while (type != null && type != Instrumentation::class.java) {
-            for (method in type.declaredMethods) {
-                if (method.name == "newActivity" &&
-                    (method.parameterTypes.contentEquals(newActivity.parameterTypes) ||
-                     (method.parameterTypes.any { it == Intent::class.java } &&
-                      android.app.Activity::class.java.isAssignableFrom(method.returnType)))) hook(method)
-            }
+        while (type != null && type != newActivity.declaringClass) {
+            type.resolve().optional(silent = true).firstMethodOrNull {
+                name = newActivity.name
+                parameters(*newActivity.parameterTypes)
+            }?.let { hook(it.self) }
             type = type.superclass
         }
         trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size}")
