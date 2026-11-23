@@ -1,6 +1,8 @@
 package io.github.nuke.oss.app.shared.activity
 
 import android.app.Instrumentation
+import android.content.Intent
+import io.github.nuke.oss.app.shared.settings.HostSettingsHandoff
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.kavaref.extension.toClass
 import io.github.nuke.oss.core.Logger
@@ -49,8 +51,11 @@ internal class ModuleActivityHook(
             scope.hooks.install(target, HookSpec(
                 id = "ModuleActivity:${target.declaringClass.name}.${target.name}",
                 before = { call ->
+                    val launchIntent = call.argument(INTENT_INDEX)
+                    val isModuleLaunch = HostSettingsHandoff.hasToken(launchIntent as? Intent)
+                    if (isModuleLaunch) logger.log("feature=$featureId handoff_intercept method=${target.declaringClass.name}.${target.name} stub=${call.argument(1)}")
                     val activity = try {
-                        create(call.argument(INTENT_INDEX))
+                        create(launchIntent)
                     } catch (error: ReflectiveOperationException) {
                         logger.log("feature=$featureId module_activity_failed $error")
                         null
@@ -58,7 +63,12 @@ internal class ModuleActivityHook(
                         logger.log("feature=$featureId module_activity_failed $error")
                         null
                     }
-                    if (activity != null) call.returnEarly(activity)
+                    if (activity != null) {
+                        if (isModuleLaunch) logger.log("feature=$featureId handoff_created activity=${activity.javaClass.name}")
+                        call.returnEarly(activity)
+                    } else if (isModuleLaunch) {
+                        logger.log("feature=$featureId handoff_not_claimed method=${target.declaringClass.name}.${target.name}")
+                    }
                 },
             ))
             covered += target
