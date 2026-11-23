@@ -1,5 +1,6 @@
 package io.github.nuke.oss.app.tiktok.feature.playback
 
+import io.github.nuke.oss.app.shared.reflect.CompatClassValue
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.kavaref.extension.toClass
 import io.github.nuke.oss.app.shared.dex.DexResolver
@@ -142,7 +143,7 @@ internal class SetVideoQuality(
         return null
     }
 
-    private val publicFieldCache = object : ClassValue<List<java.lang.reflect.Field>>() {
+    private val publicFieldCache = object : CompatClassValue<List<java.lang.reflect.Field>>() {
         override fun computeValue(type: Class<*>) = type.fields.filter { !Modifier.isStatic(it.modifiers) && !it.type.isPrimitive }
             .onEach { it.isAccessible = true }
     }
