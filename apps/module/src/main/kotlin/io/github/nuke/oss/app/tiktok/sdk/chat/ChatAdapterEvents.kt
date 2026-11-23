@@ -1,5 +1,6 @@
 package io.github.nuke.oss.app.tiktok.sdk.chat
 
+import io.github.nuke.oss.app.shared.reflect.CompatClassValue
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.kavaref.extension.toClass
 import io.github.nuke.oss.app.shared.reflect.NamedField
@@ -70,7 +71,7 @@ internal class ChatMessageFinder(private val messageType: Class<*>) {
 // work or take locks. A list is taken only if its size is the adapter's row count, which tells the mirror apart while
 // the two disagree; hosts whose count means something else still resolve without that check.
 internal class ChatRows(private val finder: ChatMessageFinder) {
-    private val lists = object : ClassValue<List<(Any) -> List<*>?>>() {
+    private val lists = object : CompatClassValue<List<(Any) -> List<*>?>>() {
         override fun computeValue(type: Class<*>): List<(Any) -> List<*>?> {
             val chain = generateSequence(type) { it.superclass }.takeWhile { it != Any::class.java }.toList()
             val getters = chain.flatMap { it.declaredMethods.asList() }
@@ -83,7 +84,7 @@ internal class ChatRows(private val finder: ChatMessageFinder) {
         }
     }
 
-    private val nested = object : ClassValue<List<Field>>() {
+    private val nested = object : CompatClassValue<List<Field>>() {
         override fun computeValue(type: Class<*>): List<Field> = generateSequence(type) { it.superclass }
             .takeWhile { !it.isPlatformClass() }
             .flatMap { it.declaredFields.asSequence() }
@@ -92,7 +93,7 @@ internal class ChatRows(private val finder: ChatMessageFinder) {
             .toList()
     }
 
-    private val fieldLists = object : ClassValue<List<Field>>() {
+    private val fieldLists = object : CompatClassValue<List<Field>>() {
         override fun computeValue(type: Class<*>): List<Field> = generateSequence(type) { it.superclass }
             .takeWhile { it != Any::class.java }
             .flatMap { it.declaredFields.asSequence() }
@@ -188,7 +189,7 @@ internal class ChatAdapterEvents(
     }
 
     // RecyclerView.Adapter.getItemCount is public API; an adapter stand-in without it just skips the size check.
-    private val itemCount = object : ClassValue<Method?>() {
+    private val itemCount = object : CompatClassValue<Method?>() {
         override fun computeValue(type: Class<*>): Method? = try {
             type.getMethod("getItemCount")
         } catch (_: NoSuchMethodException) {
