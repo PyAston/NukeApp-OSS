@@ -25,6 +25,10 @@ internal class ModuleActivityHook(
     private val lock = Any()
     private val covered = HashSet<Method>()
     private val tag = "NukeApp-OSS/Handoff"
+    private fun trace(message: String) { runCatching { Log.i(tag, message) } }
+    private fun traceError(message: String, error: Throwable? = null) {
+        runCatching { Log.e(tag, message, error) }
+    }
     private var scope: FeatureScope? = null
 
     fun install(scope: FeatureScope) {
@@ -36,7 +40,7 @@ internal class ModuleActivityHook(
                 method.parameterTypes.any { it == Intent::class.java } &&
                 method != newActivity) hook(method)
         }
-        Log.i(tag, "handoff_hooks_installed count=${covered.size}")
+        trace("handoff_hooks_installed count=${covered.size}")
     }
 
     // A host may replace the process's Instrumentation with subclasses that build Activities themselves and never
@@ -52,7 +56,7 @@ internal class ModuleActivityHook(
             }
             type = type.superclass
         }
-        Log.i(tag, "handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size}")
+        trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size}")
     }
 
     private fun hook(target: Method) {
@@ -66,26 +70,26 @@ internal class ModuleActivityHook(
                 before = { call ->
                     val launchIntent = call.argument(intentIndex)
                     val isModuleLaunch = HostSettingsHandoff.hasToken(launchIntent as? Intent)
-                    if (isModuleLaunch) Log.i(tag, "handoff_intercept target=${target.declaringClass.name}.${target.name}/${target.parameterCount} intentIndex=$intentIndex")
+                    if (isModuleLaunch) trace("handoff_intercept target=${target.declaringClass.name}.${target.name}/${target.parameterCount} intentIndex=$intentIndex")
                     val activity = try {
                         create(launchIntent)
                     } catch (error: ReflectiveOperationException) {
                         logger.log("feature=$featureId module_activity_failed $error")
-                        if (isModuleLaunch) Log.e(tag, "handoff_create_reflection_failed", error)
+                        if (isModuleLaunch) traceError("handoff_create_reflection_failed", error)
                         null
                     } catch (error: LinkageError) {
                         logger.log("feature=$featureId module_activity_failed $error")
-                        if (isModuleLaunch) Log.e(tag, "handoff_create_linkage_failed", error)
+                        if (isModuleLaunch) traceError("handoff_create_linkage_failed", error)
                         null
                     } catch (error: RuntimeException) {
-                        if (isModuleLaunch) Log.e(tag, "handoff_create_runtime_failed", error)
+                        if (isModuleLaunch) traceError("handoff_create_runtime_failed", error)
                         null
                     }
                     if (activity != null) {
-                        if (isModuleLaunch) Log.i(tag, "handoff_created activity=${activity.javaClass.name}")
+                        if (isModuleLaunch) trace("handoff_created activity=${activity.javaClass.name}")
                         call.returnEarly(activity)
                     } else if (isModuleLaunch) {
-                        Log.e(tag, "handoff_not_claimed target=${target.declaringClass.name}/${target.parameterCount}")
+                        traceError("handoff_not_claimed target=${target.declaringClass.name}/${target.parameterCount}")
                     }
                 },
             ))
