@@ -7,7 +7,7 @@ import java.lang.reflect.Field
 // obfuscated or in camelCase, so a lookup by serialized name is the one that holds across builds. The annotation is
 // matched by class name, so nothing here links Gson. A class without the field reads as null.
 internal class SerializedField(private val name: String) {
-    private val fields = object : ClassValue<Field?>() {
+    private val fields = object : CompatClassValue<Field?>() {
         override fun computeValue(type: Class<*>): Field? {
             val chain = generateSequence(type) { it.superclass }.takeWhile { it != Any::class.java }.toList()
             val declared = chain.flatMap { it.declaredFields.asList() }.filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) }
