@@ -35,10 +35,12 @@ internal class ModuleActivityHook(
         synchronized(lock) { this.scope = scope }
         hook(newActivity)
         // Some Android/OEM implementations use the extended newActivity overload.
-        for (method in Instrumentation::class.java.declaredMethods) {
-            if (method.name == "newActivity" &&
-                method.parameterTypes.any { it == Intent::class.java } &&
-                method != newActivity) hook(method)
+        if (newActivity.declaringClass == Instrumentation::class.java) {
+            for (method in Instrumentation::class.java.declaredMethods) {
+                if (method.name == "newActivity" &&
+                    method.parameterTypes.any { it == Intent::class.java } &&
+                    method != newActivity) hook(method)
+            }
         }
         trace("handoff_hooks_installed count=${covered.size}")
     }
@@ -52,7 +54,8 @@ internal class ModuleActivityHook(
             for (method in type.declaredMethods) {
                 if (method.name == "newActivity" &&
                     method.parameterTypes.any { it == Intent::class.java } &&
-                    android.app.Activity::class.java.isAssignableFrom(method.returnType)) hook(method)
+                    (android.app.Activity::class.java.isAssignableFrom(method.returnType) ||
+                     method.parameterTypes.contentEquals(newActivity.parameterTypes))) hook(method)
             }
             type = type.superclass
         }
