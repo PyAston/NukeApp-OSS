@@ -4,8 +4,6 @@ import io.github.nuke.oss.app.shared.script.ScriptRuntime
 
 import android.content.Intent
 import java.io.File
-import android.os.Binder
-import android.os.Bundle
 import io.github.nuke.oss.app.shared.diagnostics.DiagnosticsStore
 import io.github.nuke.oss.app.shared.environment.EnvironmentInfo
 import io.github.nuke.oss.app.shared.environment.ModuleVersion
@@ -41,19 +39,29 @@ internal class HostSettingsSession(
     fun setOption(featureId: String, key: String, value: Any): List<HostFeature> = controller.setOption(featureId, key, value)
 }
 
-// The session travels in the launch Intent as a Binder, which stays a plain object reference inside this process.
-// Another app cannot forge one, and after the host process dies the restored Intent carries a dead proxy that
-// does not cast, so a recreated screen reads no session instead of a stale one.
-private class SessionBinder(val session: HostSettingsSession) : Binder()
-
+// A Binder extra may be proxied or changed when an Intent is parcelled through
+// ActivityTaskManager. Keep the actual session in the injected process, and only
+// send an unguessable token as a String extra. A token from another process is
+// not in this map. Re-creation after process death deliberately gets no session.
 internal object HostSettingsHandoff {
-    // Named as a string so host adapters never link UI classes.
     const val ACTIVITY = "io.github.nuke.oss.ui.hostsettings.HostSettingsActivity"
-    private const val KEY_SESSION = "io.github.nuke.oss.app.shared.settings.SESSION"
+    private const val KEY_SESSION = "io.github.nuke.oss.app.shared.settings.SESSION_TOKEN"
+    private const val MAX_SESSIONS = 8
+    private val sessions = LinkedHashMap<String, HostSettingsSession>()
 
-    fun intent(stub: Intent, session: HostSettingsSession): Intent =
-        stub.putExtras(Bundle().apply { putBinder(KEY_SESSION, SessionBinder(session)) })
+    fun intent(stub: Intent, session: HostSettingsSession): Intent {
+        val token = java.util.UUID.randomUUID().toString()
+        synchronized(sessions) {
+            sessions[token] = session
+            while (sessions.size > MAX_SESSIONS) sessions.remove(sessions.keys.first())
+        }
+        return stub.putExtra(KEY_SESSION, token)
+    }
 
-    fun sessionOf(intent: Intent?): HostSettingsSession? =
-        (intent?.extras?.getBinder(KEY_SESSION) as? SessionBinder)?.session
+    fun sessionOf(intent: Intent?): HostSettingsSession? {
+        val token = intent?.getStringExtra(KEY_SESSION) ?: return null
+        return synchronized(sessions) { sessions[token] }
+    }
+
+    fun hasToken(intent: Intent?): Boolean = intent?.hasExtra(KEY_SESSION) == true
 }
