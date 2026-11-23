@@ -5,6 +5,7 @@ import android.content.res.AssetManager
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -59,6 +60,7 @@ class HostSettingsActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: Context) {
         val module = ModuleResourcesContext.create(newBase, BuildConfig.APPLICATION_ID, MODULE_THEME)
         moduleResources = module?.resources
+        Log.i(TAG, "handoff_attach resourcesReady=${module != null} base=${newBase.javaClass.name}")
         super.attachBaseContext(module ?: newBase)
     }
 
@@ -71,11 +73,14 @@ class HostSettingsActivity : ComponentActivity() {
     override fun setTheme(resid: Int) = super.setTheme(MODULE_THEME)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.i(TAG, "handoff_onCreate_enter sessionReady=${HostSettingsHandoff.sessionOf(intent) != null}")
         super.onCreate(savedInstanceState)
-        if (!resourcesReady) {
+        if (!resourcesReady || HostSettingsHandoff.sessionOf(intent) == null) {
+            Log.e(TAG, "handoff_onCreate_abort resourcesReady=$resourcesReady sessionReady=${HostSettingsHandoff.sessionOf(intent) != null}")
             finish()
             return
         }
+        Log.i(TAG, "handoff_onCreate_content")
         enableEdgeToEdge()
         setContent {
             var query by rememberSaveable { mutableStateOf("") }
@@ -115,6 +120,7 @@ class HostSettingsActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        Log.i(TAG, "handoff_onResume resourcesReady=$resourcesReady")
         if (resourcesReady) settings.refresh()
     }
 
@@ -126,6 +132,7 @@ class HostSettingsActivity : ComponentActivity() {
     }
 
     private companion object {
+        const val TAG = "NukeApp-OSS/Settings"
         const val MODULE_THEME = android.R.style.Theme_Material_Light_NoActionBar
     }
 
