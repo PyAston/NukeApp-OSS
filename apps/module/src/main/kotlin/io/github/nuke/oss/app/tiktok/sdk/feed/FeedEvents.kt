@@ -1,5 +1,6 @@
 package io.github.nuke.oss.app.tiktok.sdk.feed
 
+import io.github.nuke.oss.app.shared.reflect.CompatClassValue
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.kavaref.condition.type.Modifiers
 import com.highcapable.kavaref.extension.makeAccessible
@@ -29,7 +30,7 @@ internal class FeedEvents(
     // The id is aid in the host model and aweme_id in its serialized form; it tells a repeated report of one video apart.
     private val awemeId = NamedFieldAlias("aid", "aweme_id")
     private val getAdapter = NamedCall("getAdapter")
-    private val getItem = object : ClassValue<Method?>() {
+    private val getItem = object : CompatClassValue<Method?>() {
         override fun computeValue(type: Class<*>): Method? = type.resolve().optional(silent = true).firstMethodOrNull {
             name = "getItem"
             parameters(Int::class)
@@ -126,7 +127,7 @@ internal class FeedEvents(
 internal class FeedPager {
     @Volatile private var pager: WeakReference<Any>? = null
     private val currentItem = NamedCall("getCurrentItem")
-    private val moveTo = object : ClassValue<Method?>() {
+    private val moveTo = object : CompatClassValue<Method?>() {
         override fun computeValue(type: Class<*>): Method? = type.resolve().optional(silent = true).firstMethodOrNull {
             name = "setCurrentItemWithDefaultVelocityOpt"
             parameters(Int::class)
