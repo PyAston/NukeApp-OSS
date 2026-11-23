@@ -9,7 +9,7 @@ import java.lang.reflect.Method
 // A field looked up by name once per class and reused. The cache is keyed by the Class itself, so two ClassLoaders
 // that define a class of the same name never share an entry. A class without the field reads as null.
 internal class NamedField(private val name: String) {
-    private val fields = object : ClassValue<Field?>() {
+    private val fields = object : CompatClassValue<Field?>() {
         override fun computeValue(type: Class<*>): Field? =
             type.resolve().optional(silent = true).firstFieldOrNull {
                 name = this@NamedField.name
@@ -30,7 +30,7 @@ internal class NamedFieldAlias(vararg names: String) {
 
 // A public no-argument method looked up by name once per class, like NamedField. A class without it reads as null.
 internal class NamedGetter(private val name: String) {
-    private val methods = object : ClassValue<Method?>() {
+    private val methods = object : CompatClassValue<Method?>() {
         override fun computeValue(type: Class<*>): Method? =
             type.resolve().optional(silent = true).firstMethodOrNull {
                 name = this@NamedGetter.name
@@ -45,7 +45,7 @@ internal class NamedGetter(private val name: String) {
 
 // A no-argument method of any visibility looked up by name in the class and its superclasses, like NamedField.
 internal class NamedCall(private val name: String) {
-    private val methods = object : ClassValue<Method?>() {
+    private val methods = object : CompatClassValue<Method?>() {
         override fun computeValue(type: Class<*>): Method? =
             type.resolve().optional(silent = true).firstMethodOrNull {
                 name = this@NamedCall.name
