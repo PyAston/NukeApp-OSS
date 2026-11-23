@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Resources
 import android.os.Bundle
+import android.util.Log
 import com.highcapable.kavaref.KavaRef.Companion.resolve
 import com.highcapable.kavaref.extension.toClass
 import io.github.nuke.oss.R
@@ -168,6 +169,7 @@ internal class SettingsEntry(
             open(activity, session)
         }
         logger.log("feature=$ID entry_injected activity=${activity.javaClass.name} icon=$iconPlaced")
+        Log.i("NukeApp-OSS/Handoff", "handoff_entry_injected activity=${activity.javaClass.name}")
     }
 
     private fun moduleContext(activity: Activity): Context? = when (val opened = ModulePackage.open(activity, build)) {
@@ -184,7 +186,9 @@ internal class SettingsEntry(
         try {
             val launch = HostSettingsHandoff.intent(stub, session)
             logger.log("feature=$ID handoff_open_begin stub=${activity.componentName.className} tokenPresent=${HostSettingsHandoff.hasToken(launch)}")
+            Log.i("NukeApp-OSS/Handoff", "handoff_open_begin stub=${activity.componentName.className}")
             activity.startActivity(launch)
+            Log.i("NukeApp-OSS/Handoff", "handoff_open_dispatched")
             logger.log("feature=$ID handoff_open_dispatched")
         } catch (error: ActivityNotFoundException) {
             logger.log("feature=$ID handoff_open_failed $error")
