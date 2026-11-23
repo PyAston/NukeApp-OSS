@@ -108,7 +108,14 @@ internal class SettingsEntry(
     // Only a launch that carries this process's session becomes the module Activity; any other start of the stub
     // is the host's own screen.
     private fun createSettingsActivity(launchIntent: Any?): Any? {
-        if (HostSettingsHandoff.sessionOf(launchIntent as? Intent) == null) return null
+        val intent = launchIntent as? Intent
+        if (!HostSettingsHandoff.hasToken(intent)) return null
+        val session = HostSettingsHandoff.sessionOf(intent)
+        if (session == null) {
+            logger.log("feature=$ID handoff_session_missing: token not found in this process")
+            return null
+        }
+        logger.log("feature=$ID handoff_session_ready")
         return HostSettingsHandoff.ACTIVITY.toClass(SettingsEntry::class.java.classLoader, initialize = true).resolve()
             .firstConstructor { emptyParameters() }.create()
     }
@@ -175,11 +182,16 @@ internal class SettingsEntry(
     private fun open(activity: Activity, session: HostSettingsSession) {
         val stub = Intent().setComponent(activity.componentName)
         try {
-            activity.startActivity(HostSettingsHandoff.intent(stub, session))
+            val launch = HostSettingsHandoff.intent(stub, session)
+            logger.log("feature=$ID handoff_open_begin stub=${activity.componentName.className} tokenPresent=${HostSettingsHandoff.hasToken(launch)}")
+            activity.startActivity(launch)
+            logger.log("feature=$ID handoff_open_dispatched")
         } catch (error: ActivityNotFoundException) {
-            logger.log("feature=$ID open_failed $error")
+            logger.log("feature=$ID handoff_open_failed $error")
         } catch (error: SecurityException) {
-            logger.log("feature=$ID open_failed $error")
+            logger.log("feature=$ID handoff_open_failed $error")
+        } catch (error: RuntimeException) {
+            logger.log("feature=$ID handoff_open_failed ${error.javaClass.name}: ${error.message}")
         }
     }
 
