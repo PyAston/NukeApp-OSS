@@ -53,9 +53,9 @@ internal class ModuleActivityHook(
         while (type != null && type != Instrumentation::class.java) {
             for (method in type.declaredMethods) {
                 if (method.name == "newActivity" &&
-                    method.parameterTypes.any { it == Intent::class.java } &&
-                    (android.app.Activity::class.java.isAssignableFrom(method.returnType) ||
-                     method.parameterTypes.contentEquals(newActivity.parameterTypes))) hook(method)
+                    (method.parameterTypes.contentEquals(newActivity.parameterTypes) ||
+                     (method.parameterTypes.any { it == Intent::class.java } &&
+                      android.app.Activity::class.java.isAssignableFrom(method.returnType)))) hook(method)
             }
             type = type.superclass
         }
