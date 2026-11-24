@@ -2,6 +2,8 @@ package io.github.nuke.oss.app.tiktok.settings
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
+import io.github.nuke.oss.ui.hostsettings.featureLabels
 import android.util.Log
 import io.github.nuke.oss.app.shared.settings.HostSettingsSession
 
@@ -15,10 +17,18 @@ import io.github.nuke.oss.app.shared.settings.HostSettingsSession
 internal object HostSettingsQuickDialog {
     private const val TAG = "NukeApp-OSS/Handoff"
 
-    fun show(activity: Activity, session: HostSettingsSession) {
+    fun show(activity: Activity, session: HostSettingsSession, moduleContext: Context) {
         if (activity.isFinishing || activity.isDestroyed) return
         val entries = session.entries()
-        val names = entries.map { it.id }.toTypedArray()
+        val names = entries.map { feature ->
+            featureLabels[feature.id]?.let { label ->
+                try {
+                    moduleContext.getString(label.title)
+                } catch (_: android.content.res.Resources.NotFoundException) {
+                    feature.id
+                }
+            } ?: feature.id
+        }.toTypedArray()
         val selected = entries.map { it.configured }.toBooleanArray()
         AlertDialog.Builder(activity)
             .setTitle("NukeApp-OSS · 更改后重启抖音生效")
