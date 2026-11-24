@@ -182,20 +182,18 @@ internal class SettingsEntry(
 
     // Runs from a host click listener, outside Hook callback protection, so a failed launch must not escape.
     private fun open(activity: Activity, session: HostSettingsSession) {
-        val stub = Intent().setComponent(activity.componentName)
+        // Mira does not route this host Activity through our safe newActivity
+        // hook; launching its stub simply opens the Douyin settings again.
+        // Display basic controls in the current process instead.
         try {
-            val launch = HostSettingsHandoff.intent(stub, session)
-            logger.log("feature=$ID handoff_open_begin stub=${activity.componentName.className} tokenPresent=${HostSettingsHandoff.hasToken(launch)}")
-            Log.i("NukeApp-OSS/Handoff", "handoff_open_begin stub=${activity.componentName.className}")
-            activity.startActivity(launch)
-            Log.i("NukeApp-OSS/Handoff", "handoff_open_dispatched")
-            logger.log("feature=$ID handoff_open_dispatched")
-        } catch (error: ActivityNotFoundException) {
-            logger.log("feature=$ID handoff_open_failed $error")
-        } catch (error: SecurityException) {
-            logger.log("feature=$ID handoff_open_failed $error")
+            Log.i("NukeApp-OSS/Handoff", "quick_settings_open_begin")
+            HostSettingsQuickDialog.show(activity, session)
         } catch (error: RuntimeException) {
-            logger.log("feature=$ID handoff_open_failed ${error.javaClass.name}: ${error.message}")
+            logger.log("feature=$ID quick_settings_open_failed ${error.javaClass.name}: ${error.message}")
+            Log.e("NukeApp-OSS/Handoff", "quick_settings_open_failed", error)
+        } catch (error: LinkageError) {
+            logger.log("feature=$ID quick_settings_open_failed ${error.javaClass.name}: ${error.message}")
+            Log.e("NukeApp-OSS/Handoff", "quick_settings_linkage_failed", error)
         }
     }
 
