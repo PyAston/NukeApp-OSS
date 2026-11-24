@@ -41,17 +41,40 @@ internal class ModuleActivityHook(
     }
 
     fun cover(instrumentation: Any) {
+        // Android 11 cannot resolve all reflected framework method signatures:
+        // getDeclaredMethods() may throw NoClassDefFoundError for ComponentCaller.
+        // A missing optional override must never crash the host settings screen.
         var type: Class<*>? = instrumentation.javaClass
         while (type != null && type != Instrumentation::class.java) {
-            for (method in type.declaredMethods) {
-                if (method.name == "newActivity" &&
-                    (method.parameterTypes.contentEquals(newActivity.parameterTypes) ||
-                     (method.parameterTypes.any { it == Intent::class.java } &&
-                      android.app.Activity::class.java.isAssignableFrom(method.returnType)))) hook(method)
+            val current = type
+            val methods = try {
+                current.declaredMethods
+            } catch (error: LinkageError) {
+                traceError("handoff_cover_skipped owner=${current.name} reason=unavailable_method_type", error)
+                type = current.superclass
+                continue
+            } catch (error: SecurityException) {
+                traceError("handoff_cover_skipped owner=${current.name} reason=security", error)
+                type = current.superclass
+                continue
             }
-            type = type.superclass
+            for (method in methods) {
+                try {
+                    // Avoid scanning arbitrary overloads: only exact signature
+                    // originally used for the module Activity handoff.
+                    if (method.name == newActivity.name &&
+                        method.parameterTypes.contentEquals(newActivity.parameterTypes)) {
+                        hook(method)
+                    }
+                } catch (error: LinkageError) {
+                    traceError("handoff_cover_method_skipped owner=${current.name}", error)
+                } catch (error: RuntimeException) {
+                    traceError("handoff_cover_method_skipped owner=${current.name}", error)
+                }
+            }
+            type = current.superclass
         }
-        trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size}")
+        trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size} mode=api30_guarded")
     }
 
     private fun hook(target: Method) {
