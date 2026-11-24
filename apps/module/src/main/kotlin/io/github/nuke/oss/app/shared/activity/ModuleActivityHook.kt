@@ -43,13 +43,25 @@ internal class ModuleActivityHook(
     fun cover(instrumentation: Any) {
         var type: Class<*>? = instrumentation.javaClass
         while (type != null && type != newActivity.declaringClass) {
-            type.resolve().optional(silent = true).firstMethodOrNull {
-                name = newActivity.name
-                parameters(*newActivity.parameterTypes)
-            }?.let { hook(it.self) }
+            // Do not hook another overload on android.app.Instrumentation:
+            // this crashed the host on Android 11. Restrict additional hooks
+            // to methods actually declared by the live Mira wrapper.
+            for (method in type.declaredMethods) {
+                if (method.name != "newActivity") continue
+                val intentIndex = method.parameterTypes.indexOfFirst { it == Intent::class.java }
+                trace("handoff_mira_method owner=${type.name} method=${method.name} argc=${method.parameterCount} intentIndex=$intentIndex returns=${method.returnType.name}")
+                if (intentIndex < 0 || !android.app.Activity::class.java.isAssignableFrom(method.returnType)) continue
+                try {
+                    hook(method)
+                } catch (error: RuntimeException) {
+                    traceError("handoff_mira_hook_failed owner=${type.name} argc=${method.parameterCount}", error)
+                } catch (error: LinkageError) {
+                    traceError("handoff_mira_hook_linkage_failed owner=${type.name} argc=${method.parameterCount}", error)
+                }
+            }
             type = type.superclass
         }
-        trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size}")
+        trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size} mode=mira_only")
     }
 
     private fun hook(target: Method) {
