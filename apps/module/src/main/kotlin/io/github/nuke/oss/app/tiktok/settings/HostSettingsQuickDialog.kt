@@ -21,8 +21,7 @@ internal object HostSettingsQuickDialog {
         val names = entries.map { it.id }.toTypedArray()
         val selected = entries.map { it.configured }.toBooleanArray()
         AlertDialog.Builder(activity)
-            .setTitle("NukeApp-OSS")
-            .setMessage("功能开关会保存到模块配置，部分更改需要重启抖音才能生效。高级设置尚未迁移到此兼容界面。")
+            .setTitle("NukeApp-OSS · 更改后重启抖音生效")
             .setMultiChoiceItems(names, selected) { _, which, checked ->
                 val feature = entries[which]
                 try {
