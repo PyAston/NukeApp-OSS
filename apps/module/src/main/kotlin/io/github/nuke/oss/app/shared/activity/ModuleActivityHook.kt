@@ -42,26 +42,16 @@ internal class ModuleActivityHook(
 
     fun cover(instrumentation: Any) {
         var type: Class<*>? = instrumentation.javaClass
-        while (type != null && type != newActivity.declaringClass) {
-            // Do not hook another overload on android.app.Instrumentation:
-            // this crashed the host on Android 11. Restrict additional hooks
-            // to methods actually declared by the live Mira wrapper.
+        while (type != null && type != Instrumentation::class.java) {
             for (method in type.declaredMethods) {
-                if (method.name != "newActivity") continue
-                val intentIndex = method.parameterTypes.indexOfFirst { it == Intent::class.java }
-                trace("handoff_mira_method owner=${type.name} method=${method.name} argc=${method.parameterCount} intentIndex=$intentIndex returns=${method.returnType.name}")
-                if (intentIndex < 0 || !android.app.Activity::class.java.isAssignableFrom(method.returnType)) continue
-                try {
-                    hook(method)
-                } catch (error: RuntimeException) {
-                    traceError("handoff_mira_hook_failed owner=${type.name} argc=${method.parameterCount}", error)
-                } catch (error: LinkageError) {
-                    traceError("handoff_mira_hook_linkage_failed owner=${type.name} argc=${method.parameterCount}", error)
-                }
+                if (method.name == "newActivity" &&
+                    (method.parameterTypes.contentEquals(newActivity.parameterTypes) ||
+                     (method.parameterTypes.any { it == Intent::class.java } &&
+                      android.app.Activity::class.java.isAssignableFrom(method.returnType)))) hook(method)
             }
             type = type.superclass
         }
-        trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size} mode=mira_only")
+        trace("handoff_cover instrumentation=${instrumentation.javaClass.name} hooks=${covered.size}")
     }
 
     private fun hook(target: Method) {
