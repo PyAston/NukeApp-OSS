@@ -166,7 +166,7 @@ internal class SettingsEntry(
             return
         }
         val iconPlaced = layout.insertGroup(list, activity, label, icon) {
-            open(activity, session)
+            open(activity, session, module)
         }
         logger.log("feature=$ID entry_injected activity=${activity.javaClass.name} icon=$iconPlaced")
         Log.i("NukeApp-OSS/Handoff", "handoff_entry_injected activity=${activity.javaClass.name}")
@@ -181,13 +181,13 @@ internal class SettingsEntry(
     }
 
     // Runs from a host click listener, outside Hook callback protection, so a failed launch must not escape.
-    private fun open(activity: Activity, session: HostSettingsSession) {
+    private fun open(activity: Activity, session: HostSettingsSession, moduleContext: Context) {
         // Mira does not route this host Activity through our safe newActivity
         // hook; launching its stub simply opens the Douyin settings again.
         // Display basic controls in the current process instead.
         try {
             Log.i("NukeApp-OSS/Handoff", "quick_settings_open_begin")
-            HostSettingsQuickDialog.show(activity, session)
+            HostSettingsQuickDialog.show(activity, session, moduleContext)
         } catch (error: RuntimeException) {
             logger.log("feature=$ID quick_settings_open_failed ${error.javaClass.name}: ${error.message}")
             Log.e("NukeApp-OSS/Handoff", "quick_settings_open_failed", error)
