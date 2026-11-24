@@ -37,7 +37,7 @@ internal object HostSettingsQuickDialog {
         val selected = entries.map { it.configured }.toBooleanArray()
         AlertDialog.Builder(activity)
             .setTitle("NukeApp-OSS · 更改后重启抖音生效")
-            .setMultiChoiceItems(names, selected) { _, which, checked ->
+            .setMultiChoiceItems(names, selected) { dialog, which, checked ->
                 val feature = entries[which]
                 try {
                     session.set(feature.id, checked)
